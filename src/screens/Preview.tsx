@@ -23,6 +23,7 @@ export function Preview() {
   const { wallets } = useWallets()
   const [publishing, setPublishing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [title, setTitle] = useState('')
 
   const imageUrl = state.imageUrl
   const imageBlob = state.imageBlob
@@ -54,11 +55,13 @@ export function Preview() {
       const imageUri = await uploadImage(watermarked)
       const captureTime = exif.date ?? new Date().toISOString()
       const author = user?.id ?? embeddedWallet.address
+      const name = title.trim() ? title.trim() : `Memory ${captureTime.slice(0, 10)}`
       const metadata: MemoryMetadata = {
-        name: `Memory ${captureTime.slice(0, 10)}`,
+        name,
         description: 'A memory minted on Memoria',
         image: ipfsToHttp(imageUri),
         attributes: [
+          { trait_type: 'title', value: name },
           { trait_type: 'latitude', value: coords.latitude },
           { trait_type: 'longitude', value: coords.longitude },
           { trait_type: 'captureTime', value: captureTime },
@@ -109,6 +112,27 @@ export function Preview() {
         alt="Preview"
         style={{ width: '100%', flex: 1, objectFit: 'contain', background: '#111' }}
       />
+      <div style={{ padding: 16, background: '#0b0b0b', borderTop: '1px solid #1f1f1f' }}>
+        <label style={{ display: 'block', fontSize: 12, color: '#a3a3a3', marginBottom: 6 }}>
+          Title
+        </label>
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Give this memory a title"
+          maxLength={60}
+          style={{
+            width: '100%',
+            padding: 12,
+            borderRadius: 12,
+            border: '1px solid #333',
+            background: '#111',
+            color: '#e5e5e5',
+            outline: 'none',
+          }}
+          disabled={publishing}
+        />
+      </div>
       {error && <p style={{ padding: 12, margin: 0, color: '#f87171', fontSize: 14 }}>{error}</p>}
       <div style={{ padding: 24, display: 'flex', gap: 12 }}>
         <button
