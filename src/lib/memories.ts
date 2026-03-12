@@ -1,0 +1,78 @@
+import { type PublicClient, decodeEventLog } from 'viem'
+import { MEMORY_ARCHIVE_ABI } from './abi/memory-archive'
+
+const contractAddress = import.meta.env.VITE_MEMORY_ARCHIVE_CONTRACT_ADDRESS as `0x${string}`
+
+export interface MemoryMeta {
+  /**
+   * Token id as a decimal string, safe for use in URLs.
+   */
+  tokenId: string
+  image: string
+  latitude: number
+  longitude: number
+  captureTime?: string
+}
+
+function ipfsToHttp(uri: string): string {
+  if (uri.startsWith('ipfs://')) return `https://nftstorage.link/ipfs/${uri.slice(7)}`
+  return uri
+}
+
+export async function fetchMemoriesForAddress(
+  publicClient: PublicClient,
+  userAddress: `0x${string}`
+): Promise<MemoryMeta[]> {
+  if (!contractAddress) return []
+  const logs = await publicClient.getLogs({
+    address: contractAddress,
+    event: {
+      type: 'event',
+      name: 'MemoryMinted',
+      inputs: [
+        { indexed: true, name: 'tokenId', type: 'uint256' },
+        { indexed: true, name: 'to', type: 'address' },
+        { indexed: false, name: 'tokenURI', type: 'string' },
+      ],
+    },
+    args: { to: userAddress },
+    fromBlock: 0n,
+  })
+  const out: MemoryMeta[] = []
+  for (const log of logs) {
+    const decoded = decodeEventLog({
+      abi: MEMORY_ARCHIVE_ABI,
+      data: log.data,
+      topics: log.topics,
+    })
+    if (decoded.eventName !== 'MemoryMinted') continue
+    const tokenId = (decoded.args as { tokenId: bigint }).tokenId
+    const uri = await publicClient.readContract({
+      address: contractAddress,
+      abi: MEMORY_ARCHIVE_ABI,
+      functionName: 'tokenURI',
+      args: [tokenId],
+    })
+    const metaUrl = ipfsToHttp(uri)
+    let json: { image?: string; attributes?: { trait_type: string; value: string | number }[] }
+    try {
+      const res = await fetch(metaUrl)
+      json = await res.json()
+    } catch {
+      continue
+    }
+    const image = json.image ? ipfsToHttp(String(json.image)) : ''
+    const attrs = json.attributes ?? []
+    const lat = Number(attrs.find((a) => a.trait_type === 'latitude')?.value ?? 0)
+    const lng = Number(attrs.find((a) => a.trait_type === 'longitude')?.value ?? 0)
+    const captureTime = String(attrs.find((a) => a.trait_type === 'captureTime')?.value ?? '')
+    out.push({
+      tokenId: tokenId.toString(),
+      image,
+      latitude: lat,
+      longitude: lng,
+      captureTime: captureTime || undefined,
+    })
+  }
+  return out.reverse()
+}
