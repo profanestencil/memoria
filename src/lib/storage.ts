@@ -13,7 +13,11 @@ export interface MemoryMetadata {
 }
 
 export async function uploadImage(blob: Blob): Promise<string> {
-  if (!NFT_STORAGE_KEY) throw new Error('VITE_NFT_STORAGE_API_KEY not set')
+  if (!NFT_STORAGE_KEY) {
+    throw new Error(
+      'VITE_NFT_STORAGE_API_KEY not set. Add it in Vercel → Settings → Environment Variables (or in .env locally), then redeploy. Get a key at https://nft.storage'
+    )
+  }
   const form = new FormData()
   form.append('file', blob, 'memory.jpg')
   const res = await fetch('https://api.nft.storage/upload', {
@@ -32,7 +36,11 @@ export async function uploadImage(blob: Blob): Promise<string> {
 }
 
 export async function uploadMetadata(metadata: MemoryMetadata): Promise<string> {
-  if (!NFT_STORAGE_KEY) throw new Error('VITE_NFT_STORAGE_API_KEY not set')
+  if (!NFT_STORAGE_KEY) {
+    throw new Error(
+      'VITE_NFT_STORAGE_API_KEY not set. Add it in Vercel → Settings → Environment Variables (or in .env locally), then redeploy. Get a key at https://nft.storage'
+    )
+  }
   const blob = new Blob([JSON.stringify(metadata)], { type: 'application/json' })
   const form = new FormData()
   form.append('file', blob, 'metadata.json')
