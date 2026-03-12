@@ -5,6 +5,11 @@
 
 const NFT_STORAGE_KEY = import.meta.env.VITE_NFT_STORAGE_API_KEY
 
+/** True when the build had VITE_NFT_STORAGE_API_KEY set (Vite inlines at build time). */
+export function isNftStorageConfigured(): boolean {
+  return Boolean(NFT_STORAGE_KEY)
+}
+
 export interface MemoryMetadata {
   name: string
   description: string
@@ -30,6 +35,9 @@ export async function uploadImage(blob: Blob): Promise<string> {
     throw new Error(t || `Upload failed ${res.status}`)
   }
   const data = await res.json()
+  if (data?.ok === false) {
+    throw new Error(data?.error?.message ?? 'Upload failed (NFT.Storage rejected API key)')
+  }
   const cid = data.value?.cid ?? data.cid
   if (!cid) throw new Error('No CID in response')
   return `ipfs://${cid}`
@@ -54,6 +62,9 @@ export async function uploadMetadata(metadata: MemoryMetadata): Promise<string> 
     throw new Error(t || `Upload failed ${res.status}`)
   }
   const data = await res.json()
+  if (data?.ok === false) {
+    throw new Error(data?.error?.message ?? 'Upload failed (NFT.Storage rejected API key)')
+  }
   const cid = data.value?.cid ?? data.cid
   if (!cid) throw new Error('No CID in response')
   return `ipfs://${cid}`

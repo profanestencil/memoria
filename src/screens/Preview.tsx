@@ -3,7 +3,13 @@ import { usePrivy, useWallets } from '@privy-io/react-auth'
 import { useState } from 'react'
 import { readExif } from '@/lib/exif'
 import { watermarkImage } from '@/lib/watermark'
-import { uploadImage, uploadMetadata, ipfsToHttp, type MemoryMetadata } from '@/lib/storage'
+import {
+  uploadImage,
+  uploadMetadata,
+  ipfsToHttp,
+  isNftStorageConfigured,
+  type MemoryMetadata,
+} from '@/lib/storage'
 import { mintMemory } from '@/lib/mint'
 import { getCurrentPosition } from '@/lib/geo'
 
@@ -75,8 +81,29 @@ export function Preview() {
     }
   }
 
+  const storageReady = isNftStorageConfigured()
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+      {!storageReady && (
+        <div
+          style={{
+            padding: 16,
+            background: '#3f1f1f',
+            color: '#fca5a5',
+            fontSize: 14,
+            lineHeight: 1.5,
+          }}
+        >
+          <strong>NFT.Storage API key missing.</strong> Publish needs{' '}
+          <code style={{ color: '#e5e5e5' }}>VITE_NFT_STORAGE_API_KEY</code> at{' '}
+          <strong>build time</strong>. Add it in Vercel → Settings → Environment Variables (get a key at{' '}
+          <a href="https://nft.storage" style={{ color: '#93c5fd' }}>
+            nft.storage
+          </a>
+          ), then <strong>Redeploy</strong> with cache cleared. Locally, add it to <code style={{ color: '#e5e5e5' }}>.env</code> and restart dev.
+        </div>
+      )}
       <img
         src={imageUrl}
         alt="Preview"
@@ -95,10 +122,16 @@ export function Preview() {
         <button
           type="button"
           onClick={handlePublish}
-          disabled={!ready || publishing}
+          disabled={!ready || publishing || !storageReady}
           style={{ ...btnStyle, background: '#3b82f6', color: 'white' }}
         >
-          {!authenticated ? 'Sign in to publish' : publishing ? 'Publishing…' : 'Publish'}
+          {!storageReady
+            ? 'Set VITE_NFT_STORAGE_API_KEY'
+            : !authenticated
+              ? 'Sign in to publish'
+              : publishing
+                ? 'Publishing…'
+                : 'Publish'}
         </button>
       </div>
     </div>
