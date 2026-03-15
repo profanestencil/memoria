@@ -110,7 +110,9 @@ export function Map() {
     return (
       <div style={{ padding: 24, color: '#f87171' }}>
         {error}
-        <button type="button" onClick={() => navigate('/camera')}>Back to camera</button>
+        <button type="button" onClick={() => navigate('/camera')}>
+          Back to camera
+        </button>
       </div>
     )
   }
@@ -118,21 +120,51 @@ export function Map() {
   return (
     <div style={{ position: 'relative', width: '100vw', height: '100vh' }}>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
-      <a
-        href="/camera"
+      <div
         style={{
           position: 'absolute',
           top: 16,
           left: 16,
-          padding: '8px 16px',
-          background: 'rgba(0,0,0,0.6)',
-          color: 'white',
-          borderRadius: 8,
-          textDecoration: 'none',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
         }}
       >
-        Camera
-      </a>
+        <button
+          type="button"
+          onClick={() => navigate('/profile')}
+          aria-label="Profile"
+          style={{
+            width: 32,
+            height: 32,
+            borderRadius: '999px',
+            border: '1px solid rgba(148,163,184,0.9)',
+            background: 'rgba(15,23,42,0.9)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            fontSize: 14,
+            color: '#e5e5e5',
+          }}
+        >
+          ☾
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate('/camera')}
+          style={{
+            padding: '8px 16px',
+            background: 'rgba(0,0,0,0.6)',
+            color: 'white',
+            borderRadius: 8,
+            border: 'none',
+            cursor: 'pointer',
+          }}
+        >
+          Camera
+        </button>
+      </div>
     </div>
   )
 }

@@ -33,3 +33,7 @@ button {
 a {
   color: inherit;
 }
+
+.camera-filter-strip::-webkit-scrollbar {
+  display: none;
+}

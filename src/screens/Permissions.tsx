@@ -36,6 +36,29 @@ export function Permissions() {
 
   return (
     <div style={styles.page}>
+      <button
+        type="button"
+        onClick={() => navigate('/profile')}
+        aria-label="Profile"
+        style={{
+          position: 'absolute',
+          top: 16,
+          left: 16,
+          width: 32,
+          height: 32,
+          borderRadius: '999px',
+          border: '1px solid rgba(148,163,184,0.9)',
+          background: 'rgba(15,23,42,0.9)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'pointer',
+          fontSize: 14,
+          color: '#e5e5e5',
+        }}
+      >
+        ☾
+      </button>
       <h1 style={styles.title}>Memoria</h1>
       <p style={styles.subtitle}>Capture a photo, mint it, pin it on the map.</p>
       {locationOk === false && <p style={styles.error}>Location was denied.</p>}
@@ -65,6 +88,7 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'flex-start',
     minHeight: '100vh',
+    position: 'relative',
     textAlign: 'center',
     paddingTop: 64,
     boxSizing: 'border-box',

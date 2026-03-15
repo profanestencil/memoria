@@ -40,39 +40,40 @@ export async function fetchMemoriesForAddress(
   })
   const out: MemoryMeta[] = []
   for (const log of logs) {
-    const decoded = decodeEventLog({
-      abi: MEMORY_ARCHIVE_ABI,
-      data: log.data,
-      topics: log.topics,
-    })
-    if (decoded.eventName !== 'MemoryMinted') continue
-    const tokenId = (decoded.args as { tokenId: bigint }).tokenId
-    const uri = await publicClient.readContract({
-      address: contractAddress,
-      abi: MEMORY_ARCHIVE_ABI,
-      functionName: 'tokenURI',
-      args: [tokenId],
-    })
-    const metaUrl = ipfsToHttp(uri)
-    let json: { image?: string; attributes?: { trait_type: string; value: string | number }[] }
     try {
+      const decoded = decodeEventLog({
+        abi: MEMORY_ARCHIVE_ABI,
+        data: log.data,
+        topics: log.topics,
+      })
+      if (decoded.eventName !== 'MemoryMinted') continue
+      const tokenId = (decoded.args as { tokenId: bigint }).tokenId
+      const uri = await publicClient.readContract({
+        address: contractAddress,
+        abi: MEMORY_ARCHIVE_ABI,
+        functionName: 'tokenURI',
+        args: [tokenId],
+      })
+      const metaUrl = ipfsToHttp(uri)
       const res = await fetch(metaUrl)
-      json = await res.json()
+      const json: { image?: string; attributes?: { trait_type: string; value: string | number }[] } =
+        await res.json()
+      const image = json.image ? ipfsToHttp(String(json.image)) : ''
+      const attrs = json.attributes ?? []
+      const lat = Number(attrs.find((a) => a.trait_type === 'latitude')?.value ?? 0)
+      const lng = Number(attrs.find((a) => a.trait_type === 'longitude')?.value ?? 0)
+      const captureTime = String(attrs.find((a) => a.trait_type === 'captureTime')?.value ?? '')
+      out.push({
+        tokenId: tokenId.toString(),
+        image,
+        latitude: lat,
+        longitude: lng,
+        captureTime: captureTime || undefined,
+      })
     } catch {
+      // If anything fails (decode, readContract, ipfsToHttp, fetch, parse), skip this memory.
       continue
     }
-    const image = json.image ? ipfsToHttp(String(json.image)) : ''
-    const attrs = json.attributes ?? []
-    const lat = Number(attrs.find((a) => a.trait_type === 'latitude')?.value ?? 0)
-    const lng = Number(attrs.find((a) => a.trait_type === 'longitude')?.value ?? 0)
-    const captureTime = String(attrs.find((a) => a.trait_type === 'captureTime')?.value ?? '')
-    out.push({
-      tokenId: tokenId.toString(),
-      image,
-      latitude: lat,
-      longitude: lng,
-      captureTime: captureTime || undefined,
-    })
   }
   return out.reverse()
 }

@@ -1,6 +1,6 @@
 import { useNavigate, useLocation } from 'react-router-dom'
 import { usePrivy, useWallets } from '@privy-io/react-auth'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { readExif } from '@/lib/exif'
 import { watermarkImage } from '@/lib/watermark'
 import {
@@ -36,6 +36,15 @@ export function Preview() {
       </div>
     )
   }
+
+  // Revoke blob URL once this preview screen unmounts to avoid leaking object URLs.
+  useEffect(() => {
+    return () => {
+      if (imageUrl && imageUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(imageUrl)
+      }
+    }
+  }, [imageUrl])
 
   async function handlePublish() {
     if (!authenticated) {
@@ -87,7 +96,31 @@ export function Preview() {
   const storageReady = isNftStorageConfigured()
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', position: 'relative' }}>
+      <button
+        type="button"
+        onClick={() => navigate('/profile')}
+        aria-label="Profile"
+        style={{
+          position: 'absolute',
+          top: 12,
+          left: 12,
+          zIndex: 10,
+          width: 32,
+          height: 32,
+          borderRadius: '999px',
+          border: '1px solid rgba(148,163,184,0.9)',
+          background: 'rgba(15,23,42,0.9)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'pointer',
+          fontSize: 14,
+          color: '#e5e5e5',
+        }}
+      >
+        ☾
+      </button>
       {!storageReady && (
         <div
           style={{

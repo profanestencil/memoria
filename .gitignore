@@ -5,10 +5,11 @@ node_modules/
 dist/
 *.local
 
-# Env (never commit secrets)
+# Env – never commit; use .env.example as template. Secrets go only in .env (local) or CI.
 .env
 .env.local
 .env.*.local
+!.env.example
 
 # IDE
 .idea/

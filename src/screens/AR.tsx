@@ -135,13 +135,39 @@ export function AR() {
       <div style={{ padding: 24 }}>
         <p>No memory data. Open from the map.</p>
         {tokenId && <p>Route token: {tokenId}</p>}
-        <button type="button" onClick={() => navigate('/map')}>Back to map</button>
+        <button type="button" onClick={() => navigate('/map')}>
+          Back to map
+        </button>
       </div>
     )
   }
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#000' }}>
+      <button
+        type="button"
+        onClick={() => navigate('/profile')}
+        aria-label="Profile"
+        style={{
+          position: 'absolute',
+          top: 12,
+          left: 12,
+          zIndex: 10,
+          width: 32,
+          height: 32,
+          borderRadius: '999px',
+          border: '1px solid rgba(148,163,184,0.9)',
+          background: 'rgba(15,23,42,0.9)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'pointer',
+          fontSize: 14,
+          color: '#e5e5e5',
+        }}
+      >
+        ☾
+      </button>
       <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: '100%' }} />
       {error && (
         <p style={{ position: 'absolute', top: 16, left: 16, right: 16, color: '#f87171', margin: 0 }}>
