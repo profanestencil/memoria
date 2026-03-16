@@ -95,6 +95,18 @@ export function Preview() {
 
   const storageReady = isNftStorageConfigured()
 
+  function handleSavePhoto() {
+    if (!imageBlob) return
+    const url = URL.createObjectURL(imageBlob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'memoria-photo.jpg'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', position: 'relative' }}>
       <button
@@ -168,6 +180,14 @@ export function Preview() {
       </div>
       {error && <p style={{ padding: 12, margin: 0, color: '#f87171', fontSize: 14 }}>{error}</p>}
       <div style={{ padding: 24, display: 'flex', gap: 12 }}>
+        <button
+          type="button"
+          onClick={handleSavePhoto}
+          style={btnStyle}
+          disabled={publishing}
+        >
+          Save photo
+        </button>
         <button
           type="button"
           onClick={() => navigate('/camera')}

@@ -69,6 +69,8 @@ export function Camera() {
       .catch(() => {})
   }, [])
 
+  const selectedFilter = CAMERA_FILTERS.find((f) => f.id === selectedFilterId) ?? CAMERA_FILTERS[0]
+
   function capture() {
     if (!videoRef.current || !streamRef.current) return
     const video = videoRef.current
@@ -119,7 +121,12 @@ export function Camera() {
         autoPlay
         playsInline
         muted
-        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+        style={{
+          width: '100%',
+          height: '100%',
+          objectFit: 'cover',
+          filter: selectedFilter.filter || 'none',
+        }}
       />
       {/* Filter strip */}
       <div

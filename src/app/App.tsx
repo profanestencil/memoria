@@ -43,6 +43,13 @@ export function App() {
     <PrivyProvider
       appId={privyAppId}
       config={{
+        appearance: {
+          /**
+           * Ensure Rainbow is offered as an external wallet option.
+           * On mobile, Rainbow's in-app browser will also be auto-detected.
+           */
+          walletList: ['rainbow', 'metamask', 'wallet_connect_qr'],
+        },
         embeddedWallets: {
           createOnLogin: 'users-without-wallets',
         },
