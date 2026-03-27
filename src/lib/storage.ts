@@ -1,16 +1,18 @@
 /**
  * Storage abstraction: upload image and metadata, return URIs.
- * Default: NFT.Storage (client).
- * Optional: Pinata if API key + secret are provided.
+ * Primary: Pinata (VITE_PINATA_API_KEY + VITE_PINATA_SECRET).
+ * Fallback: NFT.Storage (VITE_NFT_STORAGE_API_KEY).
  */
 
 const NFT_STORAGE_KEY = import.meta.env.VITE_NFT_STORAGE_API_KEY
 const PINATA_API_KEY = import.meta.env.VITE_PINATA_API_KEY
 const PINATA_SECRET = import.meta.env.VITE_PINATA_SECRET
 
-/** True when any storage backend is configured at build time (Vite inlines env). */
-export function isNftStorageConfigured(): boolean {
-  return Boolean(PINATA_API_KEY && PINATA_SECRET) || Boolean(NFT_STORAGE_KEY)
+const pinataConfigured = Boolean(PINATA_API_KEY && PINATA_SECRET)
+
+/** True when Pinata or NFT.Storage is configured at build time (Vite inlines env). */
+export function isStorageConfigured(): boolean {
+  return pinataConfigured || Boolean(NFT_STORAGE_KEY)
 }
 
 /** Reject NFT.Storage key that is clearly malformed (spaces, JSON, etc.) so we throw a clear error instead of NFT.Storage's generic one. */
@@ -35,7 +37,6 @@ export interface MemoryMetadata {
 }
 
 export async function uploadImage(blob: Blob): Promise<string> {
-  // Prefer Pinata if configured, otherwise fall back to NFT.Storage.
   if (PINATA_API_KEY && PINATA_SECRET) {
     const form = new FormData()
     form.append('file', blob, 'memory.jpg')
@@ -89,7 +90,6 @@ export async function uploadImage(blob: Blob): Promise<string> {
 }
 
 export async function uploadMetadata(metadata: MemoryMetadata): Promise<string> {
-  // Prefer Pinata JSON if configured.
   if (PINATA_API_KEY && PINATA_SECRET) {
     const res = await fetch('https://api.pinata.cloud/pinning/pinJSONToIPFS', {
       method: 'POST',
@@ -145,5 +145,8 @@ export async function uploadMetadata(metadata: MemoryMetadata): Promise<string> 
 export function ipfsToHttp(ipfsUri: string): string {
   if (!ipfsUri.startsWith('ipfs://')) return ipfsUri
   const cid = ipfsUri.slice(7)
+  if (pinataConfigured) {
+    return `https://gateway.pinata.cloud/ipfs/${cid}`
+  }
   return `https://nftstorage.link/ipfs/${cid}`
 }

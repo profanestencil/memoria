@@ -5,12 +5,13 @@ Photo and location-based memory archive: capture a photo, mint it as an NFT on B
 ## Stack
 
 - **Frontend:** React 18, Vite, TypeScript
-- **Auth & wallet:** [Privy](https://privy.io) (embedded wallet, auto-created on login)
+- **Auth & wallet:** [Privy](https://privy.io) (embedded wallet for email/social users; Rainbow, MetaMask, WalletConnect on mobile)
 - **Chain:** [Base](https://base.org) (Ethereum L2)
 - **Map:** Mapbox GL JS
 - **AR:** WebXR + Three.js (geo-anchored plane)
-- **Storage:** NFT.Storage (client-side IPFS) for images and metadata
-- **Contract:** ERC-721 (OpenZeppelin) with per-token URI; minting on Base
+- **Storage:** [Pinata](https://pinata.cloud) (client-side IPFS) for images and metadata; optional NFT.Storage fallback
+- **Contracts:** `MemoryArchive` and `MemoryRegistry` (ERC-721 style minting with per-token URI or registry events, depending on the flow)
+- **Indexer:** optional `indexer/` service that follows `MemoryRegistry` mints and serves `/memories` for the world map
 
 ## Setup
 
@@ -22,28 +23,71 @@ Photo and location-based memory archive: capture a photo, mint it as an NFT on B
    npm install
    ```
 
-2. **Environment**
+2. **Environment (app root)**
 
    Copy `.env.example` to `.env` and set:
 
    - `VITE_PRIVY_APP_ID` – [Privy dashboard](https://dashboard.privy.io)
    - `VITE_MAPBOX_ACCESS_TOKEN` – [Mapbox](https://account.mapbox.com)
-   - `VITE_BASE_RPC_URL` – e.g. `https://mainnet.base.org` or `https://sepolia.base.org`
-   - `VITE_MEMORY_ARCHIVE_CONTRACT_ADDRESS` – after deploying the contract
-   - `VITE_NFT_STORAGE_API_KEY` – [NFT.Storage](https://nft.storage) (for uploads)
+   - `VITE_CHAIN` – `base` or `base-sepolia` (must match the network where your contracts are deployed)
+   - `VITE_BASE_RPC_URL` – e.g. `https://mainnet.base.org`
+   - `VITE_BASE_SEPOLIA_RPC_URL` – e.g. `https://sepolia.base.org` (when using testnet)
+   - `VITE_MEMORY_ARCHIVE_CONTRACT_ADDRESS` – **MemoryArchive** (Camera → Preview publish flow and on-chain log reads)
+   - `VITE_MEMORY_REGISTRY_CONTRACT_ADDRESS` – **MemoryRegistry** (Remember mint flow)
+   - `VITE_INDEXER_URL` – base URL of the indexer HTTP API (default in dev: `http://localhost:8787`)
+   - `VITE_PINATA_API_KEY` + `VITE_PINATA_SECRET` – [Pinata](https://pinata.cloud) (recommended for uploads)
+   - Optional: `VITE_NFT_STORAGE_API_KEY` – [NFT.Storage](https://nft.storage) (fallback)
 
-3. **Deploy the contract (Base Sepolia or Base mainnet)**
+   **Privy dashboard (required for wallet login, especially on mobile):**
+
+   - Enable **Wallet** (and any other login methods you use).
+   - Under **Domains**, allow your production URL and `http://localhost:5173` (or your dev port) for local testing.
+   - Enable **Base** (chain id `8453` mainnet, `84532` Sepolia) so external wallets match the app’s `supportedChains`.
+   - For WalletConnect on mobile browsers, ensure external wallet / WalletConnect is not blocked by your app’s login-method settings.
+
+3. **Contracts (Base Sepolia or Base mainnet)**
+
+   From `contracts/`:
 
    ```bash
    cd contracts
    npm install
-   # Set PRIVATE_KEY and optionally BASE_SEPOLIA_RPC or BASE_RPC
+   ```
+
+   Set `PRIVATE_KEY` (deployer). Optional: `BASE_SEPOLIA_RPC` or `BASE_RPC` to override default RPC URLs in `hardhat.config.ts`.
+
+   **MemoryArchive** (classic archive):
+
+   ```bash
    npm run deploy:base-sepolia   # or deploy:base
    ```
 
-   Put the printed contract address into `VITE_MEMORY_ARCHIVE_CONTRACT_ADDRESS`.
+   Put the printed address in `VITE_MEMORY_ARCHIVE_CONTRACT_ADDRESS`.
 
-4. **Run the app**
+   **MemoryRegistry** (Remember flow + indexer):
+
+   ```bash
+   npm run deploy:memory-registry:base-sepolia   # or deploy:memory-registry:base
+   ```
+
+   Put the printed address in `VITE_MEMORY_REGISTRY_CONTRACT_ADDRESS`.
+
+4. **Indexer (optional, for Remember / world map pins)**
+
+   The map loads public and user memories from the indexer, which tracks **MemoryRegistry** mint events.
+
+   ```bash
+   cd indexer
+   npm install
+   export MEMORY_REGISTRY_ADDRESS=0xYourMemoryRegistry
+   export CHAIN=base-sepolia   # or base
+   # optional: export BASE_RPC_URL=https://sepolia.base.org
+   npm run dev
+   ```
+
+   Point `VITE_INDEXER_URL` in the app `.env` at this service (same host/port, no trailing slash).
+
+5. **Run the app**
 
    ```bash
    npm run dev
@@ -55,10 +99,10 @@ Photo and location-based memory archive: capture a photo, mint it as an NFT on B
 
 1. **Permissions** – Allow location and camera.
 2. **Camera** – Take a photo (branded “Memoria”).
-3. **Preview** – Sign in with Privy (creates embedded wallet if needed), then **Publish**.
-4. **Publish** – Photo is watermarked, uploaded to IPFS, metadata (geo, EXIF, date, author) is stored, and an NFT is minted on Base to your wallet.
-5. **Map** – Pins show your minted memories; tap a pin to open AR.
-6. **AR** – Tap “Enter AR” to start WebXR; the photo appears on a plane at the real-world location (GPS/compass-based).
+3. **Preview** – Sign in with Privy (creates embedded wallet if needed), then **Publish**: watermarked upload to IPFS, metadata (geo, EXIF, date, author), and mint on Base via **MemoryArchive**.
+4. **Remember** – Separate flow: create a memory minted through **MemoryRegistry**; with the indexer running, public memories appear on the world map.
+5. **Map** – Pins for your archive (e.g. logs from **MemoryArchive**) and/or the Remember map (indexer + **MemoryRegistry**); tap a pin to open AR.
+6. **AR** – Tap **Enter AR** to start WebXR; the photo appears on a plane toward the real-world location (GPS/compass-based).
 
 ## Plan
 

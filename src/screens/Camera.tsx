@@ -1,6 +1,8 @@
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useRef, useEffect, useState } from 'react'
 import { getCurrentPosition } from '@/lib/geo'
+import { MemoriesMapCanvas } from '@/components/MemoriesMapCanvas'
+import { WalletProfileButton } from '@/components/WalletProfileButton'
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN
 
@@ -16,7 +18,6 @@ const CAMERA_FILTERS: { id: string; label: string; filter: string }[] = [
   { id: 'dramatic', label: 'Dramatic', filter: 'contrast(1.25) saturate(1.1)' },
 ]
 
-/** Mapbox Static Images API URL for a small map centered on lng,lat. */
 function staticMapUrl(lng: number, lat: number, zoom: number, width: number, height: number): string {
   if (!MAPBOX_TOKEN) return ''
   const base = 'https://api.mapbox.com/styles/v1/mapbox/dark-v11/static'
@@ -26,6 +27,9 @@ function staticMapUrl(lng: number, lat: number, zoom: number, width: number, hei
 
 export function Camera() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const mapOpen = searchParams.get('map') === '1'
+
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const lastObjectUrlRef = useRef<string | null>(null)
@@ -34,7 +38,28 @@ export function Camera() {
   const [mapCoords, setMapCoords] = useState<{ lng: number; lat: number } | null>(null)
   const [selectedFilterId, setSelectedFilterId] = useState<string>('normal')
 
-  // Revoke any object URL we created if Camera unmounts before navigation completes.
+  const handleOpenMap = () => {
+    setSearchParams(
+      (prev) => {
+        const p = new URLSearchParams(prev)
+        p.set('map', '1')
+        return p
+      },
+      { replace: false }
+    )
+  }
+
+  const handleCloseMap = () => {
+    setSearchParams(
+      (prev) => {
+        const p = new URLSearchParams(prev)
+        p.delete('map')
+        return p
+      },
+      { replace: true }
+    )
+  }
+
   useEffect(() => {
     return () => {
       if (lastObjectUrlRef.current) {
@@ -105,11 +130,15 @@ export function Camera() {
 
   if (error) {
     return (
-      <div style={{ padding: 24, color: '#f87171' }}>
-        {error}
-        <button type="button" onClick={() => navigate('/')} style={{ marginTop: 16 }}>
-          Back
-        </button>
+      <div className="mem-page mem-page--center">
+        <main className="mem-main">
+          <p className="mem-error" style={{ marginBottom: 20 }}>
+            {error}
+          </p>
+          <button type="button" className="mem-btn mem-btn--secondary" onClick={() => navigate('/')}>
+            Back home
+          </button>
+        </main>
       </div>
     )
   }
@@ -128,7 +157,42 @@ export function Camera() {
           filter: selectedFilter.filter || 'none',
         }}
       />
-      {/* Filter strip */}
+
+      {mapOpen && MAPBOX_TOKEN ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Map"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1600,
+            background: '#0a0a0a',
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
+            <MemoriesMapCanvas trackUser style={{ width: '100%', height: '100%' }} />
+            <button
+              type="button"
+              onClick={handleCloseMap}
+              aria-label="Close map"
+              className="mem-btn mem-btn--ghost"
+              style={{
+                position: 'absolute',
+                top: 14,
+                right: 14,
+                zIndex: 10,
+                background: 'rgba(10, 9, 8, 0.92)',
+              }}
+            >
+              Close map
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <div
         className="camera-filter-strip"
         style={{
@@ -151,16 +215,7 @@ export function Camera() {
               key={f.id}
               type="button"
               onClick={() => setSelectedFilterId(f.id)}
-              style={{
-                flexShrink: 0,
-                padding: '8px 14px',
-                borderRadius: 999,
-                border: selected ? '2px solid white' : '1px solid rgba(255,255,255,0.5)',
-                background: selected ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.4)',
-                color: 'white',
-                fontSize: 13,
-                cursor: 'pointer',
-              }}
+              className={`mem-filter-pill ${selected ? 'mem-filter-pill--active' : ''}`}
             >
               {f.label}
             </button>
@@ -181,13 +236,8 @@ export function Camera() {
           type="button"
           onClick={capture}
           disabled={!ready}
-          style={{
-            width: 72,
-            height: 72,
-            borderRadius: '50%',
-            border: '4px solid white',
-            background: 'rgba(255,255,255,0.3)',
-          }}
+          className="mem-ios-shutter"
+          aria-label="Capture photo"
         />
       </div>
       <div
@@ -197,38 +247,27 @@ export function Camera() {
           left: 16,
           display: 'flex',
           alignItems: 'center',
-          gap: 8,
+          gap: 10,
           color: 'white',
+          zIndex: 5,
         }}
       >
-        <button
-          type="button"
-          onClick={() => navigate('/profile')}
-          aria-label="Profile"
-          style={{
-            width: 32,
-            height: 32,
-            borderRadius: '999px',
-            border: '1px solid rgba(148,163,184,0.9)',
-            background: 'rgba(15,23,42,0.9)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            fontSize: 14,
-            color: '#e5e5e5',
-          }}
-        >
-          ☾
-        </button>
-        <span style={{ fontSize: '1.25rem' }}>Memoria</span>
+        <WalletProfileButton />
+        <span className="mem-brand" style={{ fontSize: '1.15rem', textShadow: '0 2px 12px rgba(0,0,0,0.5)' }}>
+          Memoria
+        </span>
       </div>
 
-      {/* Map thumbnail: tap to switch to map view (old RPG style). */}
       <button
         type="button"
-        onClick={() => navigate('/map')}
-        aria-label="Open map"
+        onClick={() => {
+          if (!MAPBOX_TOKEN) {
+            navigate('/map')
+            return
+          }
+          handleOpenMap()
+        }}
+        aria-label={MAPBOX_TOKEN ? 'Open fullscreen map' : 'Open map'}
         style={{
           position: 'absolute',
           bottom: 48,
@@ -237,15 +276,17 @@ export function Camera() {
           height: 100,
           padding: 0,
           margin: 0,
-          border: '3px solid rgba(180,160,120,0.95)',
-          borderRadius: 8,
-          boxShadow: 'inset 0 0 12px rgba(0,0,0,0.4), 4px 4px 12px rgba(0,0,0,0.5)',
-          background: '#2a2520',
+          border: '3px solid rgba(201, 162, 39, 0.65)',
+          borderRadius: 10,
+          boxShadow:
+            'inset 0 0 14px rgba(0,0,0,0.45), 0 4px 18px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.06)',
+          background: '#1a1714',
           overflow: 'hidden',
           cursor: 'pointer',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
+          zIndex: 5,
         }}
       >
         {MAPBOX_TOKEN && mapCoords ? (
@@ -258,7 +299,7 @@ export function Camera() {
             draggable={false}
           />
         ) : (
-          <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.75rem' }}>Map</span>
+          <span style={{ color: 'rgba(232, 197, 71, 0.75)', fontSize: '0.75rem', fontWeight: 600 }}>Map</span>
         )}
       </button>
     </div>

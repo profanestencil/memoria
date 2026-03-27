@@ -1,168 +1,65 @@
-import { useNavigate } from 'react-router-dom'
-import { useEffect, useRef, useState } from 'react'
-import mapboxgl from 'mapbox-gl'
-import 'mapbox-gl/dist/mapbox-gl.css'
-import { useWallets } from '@privy-io/react-auth'
-import { usePublicClient } from 'wagmi'
-import { fetchMemoriesForAddress, type MemoryMeta } from '@/lib/memories'
+import { useEffect, useRef } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import type { Map as MapboxMap } from 'mapbox-gl'
+import { MemoriesMapCanvas } from '@/components/MemoriesMapCanvas'
+import { WalletProfileButton } from '@/components/WalletProfileButton'
 
 const token = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN
 
 export function Map() {
   const navigate = useNavigate()
-  const containerRef = useRef<HTMLDivElement>(null)
-  const mapRef = useRef<mapboxgl.Map | null>(null)
-  const markersRef = useRef<mapboxgl.Marker[]>([])
-  const userMarkerRef = useRef<mapboxgl.Marker | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [memories, setMemories] = useState<MemoryMeta[]>([])
-  const publicClient = usePublicClient()
-  const { wallets } = useWallets()
-  const embeddedWallet = wallets?.find((w) => w.walletClientType === 'privy')
+  const [searchParams] = useSearchParams()
+  const mapInstanceRef = useRef<MapboxMap | null>(null)
+
+  const lat = searchParams.get('lat')
+  const lng = searchParams.get('lng')
 
   useEffect(() => {
-    if (!token) {
-      setError('Set VITE_MAPBOX_ACCESS_TOKEN')
-      return
-    }
-    if (!containerRef.current) return
-    mapboxgl.accessToken = token
-    const map = new mapboxgl.Map({
-      container: containerRef.current,
-      style: 'mapbox://styles/mapbox/dark-v11',
-      // Will be updated to user location if available.
-      center: [-98, 39],
-      zoom: 3,
-    })
-    mapRef.current = map
+    const map = mapInstanceRef.current
+    if (!map || !lat || !lng) return
+    const la = Number(lat)
+    const lo = Number(lng)
+    if (Number.isNaN(la) || Number.isNaN(lo)) return
+    map.easeTo({ center: [lo, la], zoom: 15, duration: 900 })
+  }, [lat, lng])
 
-    // Show user location + zoom into local area.
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (p) => {
-          const lng = p.coords.longitude
-          const lat = p.coords.latitude
-          map.easeTo({ center: [lng, lat], zoom: 14, duration: 900 })
-
-          const el = document.createElement('div')
-          el.style.width = '14px'
-          el.style.height = '14px'
-          el.style.borderRadius = '50%'
-          el.style.background = '#22c55e'
-          el.style.boxShadow = '0 0 0 6px rgba(34,197,94,0.18)'
-          el.style.border = '2px solid rgba(255,255,255,0.9)'
-          userMarkerRef.current?.remove()
-          userMarkerRef.current = new mapboxgl.Marker({ element: el })
-            .setLngLat([lng, lat])
-            .addTo(map)
-        },
-        () => {
-          // Permission denied or unavailable; keep default view.
-        },
-        { enableHighAccuracy: true, timeout: 8000 }
-      )
-    }
-
-    return () => {
-      markersRef.current.forEach((m) => m.remove())
-      markersRef.current = []
-      userMarkerRef.current?.remove()
-      userMarkerRef.current = null
-      map.remove()
-      mapRef.current = null
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!publicClient || !embeddedWallet?.address || !mapRef.current) return
-    fetchMemoriesForAddress(publicClient, embeddedWallet.address as `0x${string}`)
-      .then(setMemories)
-      .catch(() => setMemories([]))
-  }, [publicClient, embeddedWallet?.address])
-
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map || !memories.length) return
-    markersRef.current.forEach((m) => m.remove())
-    markersRef.current = []
-    for (const mem of memories) {
-      const el = document.createElement('div')
-      el.className = 'memory-marker'
-      el.style.width = '32px'
-      el.style.height = '32px'
-      el.style.borderRadius = '50%'
-      el.style.background = '#3b82f6'
-      el.style.border = '2px solid white'
-      el.style.cursor = 'pointer'
-      const marker = new mapboxgl.Marker({ element: el })
-        .setLngLat([mem.longitude, mem.latitude])
-        .addTo(map)
-      el.addEventListener('click', () => {
-        navigate(`/ar/${mem.tokenId}`, {
-          state: { imageUrl: mem.image, latitude: mem.latitude, longitude: mem.longitude },
-        })
-      })
-      markersRef.current.push(marker)
-    }
-  }, [memories, navigate])
-
-  if (error) {
+  if (!token) {
     return (
-      <div style={{ padding: 24, color: '#f87171' }}>
-        {error}
-        <button type="button" onClick={() => navigate('/camera')}>
-          Back to camera
-        </button>
+      <div className="mem-page">
+        <div className="mem-config-error">
+          <h1>Mapbox token missing</h1>
+          <p style={{ margin: 0, color: 'var(--mem-text-muted)' }}>
+            Set <code>VITE_MAPBOX_ACCESS_TOKEN</code> in your environment, then restart the dev server.
+          </p>
+          <button type="button" className="mem-btn mem-btn--secondary" style={{ marginTop: 24, maxWidth: 200 }} onClick={() => navigate('/')}>
+            Home
+          </button>
+        </div>
       </div>
     )
   }
 
   return (
     <div style={{ position: 'relative', width: '100vw', height: '100vh' }}>
-      <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
-      <div
-        style={{
-          position: 'absolute',
-          top: 16,
-          left: 16,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
+      <MemoriesMapCanvas
+        trackUser
+        style={{ width: '100%', height: '100%' }}
+        onMapReady={(m) => {
+          mapInstanceRef.current = m
         }}
-      >
+      />
+      <div className="mem-map-overlay">
+        <WalletProfileButton />
         <button
           type="button"
-          onClick={() => navigate('/profile')}
-          aria-label="Profile"
-          style={{
-            width: 32,
-            height: 32,
-            borderRadius: '999px',
-            border: '1px solid rgba(148,163,184,0.9)',
-            background: 'rgba(15,23,42,0.9)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            fontSize: 14,
-            color: '#e5e5e5',
-          }}
+          onClick={() => navigate(-1)}
+          className="mem-btn mem-btn--icon"
+          aria-label="Go back"
         >
-          ☾
+          ←
         </button>
-        <button
-          type="button"
-          onClick={() => navigate('/camera')}
-          style={{
-            padding: '8px 16px',
-            background: 'rgba(0,0,0,0.6)',
-            color: 'white',
-            borderRadius: 8,
-            border: 'none',
-            cursor: 'pointer',
-          }}
-        >
-          Camera
+        <button type="button" onClick={() => navigate('/')} className="mem-btn mem-btn--ghost" aria-label="Home">
+          Home
         </button>
       </div>
     </div>

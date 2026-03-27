@@ -30,3 +30,4 @@ contracts/cache/
 contracts/artifacts/
 coverage/
 coverage.json
+.vercel

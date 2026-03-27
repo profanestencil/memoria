@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { usePrivy, useWallets } from '@privy-io/react-auth'
 import { usePublicClient } from 'wagmi'
 import { formatEther } from 'viem'
+import { pickEthereumSigningWallet } from '@/lib/privyWallet'
 
 type BalanceMap = Record<string, string>
 
@@ -12,17 +13,18 @@ export function Profile() {
   const { wallets } = useWallets()
   const publicClient = usePublicClient()
   const [balances, setBalances] = useState<BalanceMap>({})
-  const embeddedWallet = wallets?.find((w) => w.walletClientType === 'privy')
+  const signingWallet = pickEthereumSigningWallet(wallets)
 
   useEffect(() => {
     if (!publicClient || !wallets?.length) return
+    const client = publicClient
     let cancelled = false
     async function load() {
       try {
         const entries = await Promise.all(
           wallets.map(async (w) => {
             try {
-              const balance = await publicClient.getBalance({ address: w.address as `0x${string}` })
+              const balance = await client.getBalance({ address: w.address as `0x${string}` })
               const formatted = formatEther(balance)
               return [w.address, Number(formatted).toFixed(4)]
             } catch {
@@ -41,7 +43,7 @@ export function Profile() {
     }
   }, [publicClient, wallets])
 
-  const primaryAddress = embeddedWallet?.address ?? wallets?.[0]?.address
+  const primaryAddress = signingWallet?.address ?? wallets?.[0]?.address
 
   return (
     <div

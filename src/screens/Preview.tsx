@@ -7,11 +7,13 @@ import {
   uploadImage,
   uploadMetadata,
   ipfsToHttp,
-  isNftStorageConfigured,
+  isStorageConfigured,
   type MemoryMetadata,
 } from '@/lib/storage'
 import { mintMemory } from '@/lib/mint'
 import { getCurrentPosition } from '@/lib/geo'
+import { pickEthereumSigningWallet } from '@/lib/privyWallet'
+import { WalletProfileButton } from '@/components/WalletProfileButton'
 
 type LocationState = { imageBlob?: Blob; imageUrl?: string }
 
@@ -27,17 +29,23 @@ export function Preview() {
 
   const imageUrl = state.imageUrl
   const imageBlob = state.imageBlob
-  const embeddedWallet = wallets?.find((w) => w.walletClientType === 'privy')
+  const signingWallet = pickEthereumSigningWallet(wallets)
 
   if (!imageUrl || !imageBlob) {
     return (
-      <div style={{ padding: 24 }}>
-        No photo. <button onClick={() => navigate('/camera')}>Take one</button>
+      <div className="mem-page mem-page--center">
+        <main className="mem-main">
+          <p className="mem-subtitle" style={{ marginBottom: 20 }}>
+            No photo in this session.
+          </p>
+          <button type="button" className="mem-btn mem-btn--primary" onClick={() => navigate('/camera')}>
+            Take one
+          </button>
+        </main>
       </div>
     )
   }
 
-  // Revoke blob URL once this preview screen unmounts to avoid leaking object URLs.
   useEffect(() => {
     return () => {
       if (imageUrl && imageUrl.startsWith('blob:')) {
@@ -46,12 +54,12 @@ export function Preview() {
     }
   }, [imageUrl])
 
-  async function handlePublish() {
+  const handlePublish = async () => {
     if (!authenticated) {
       login()
       return
     }
-    if (!embeddedWallet?.address || !embeddedWallet.getEthereumProvider) {
+    if (!signingWallet?.address || !signingWallet.getEthereumProvider) {
       setError('Wallet not ready')
       return
     }
@@ -63,7 +71,7 @@ export function Preview() {
       const watermarked = await watermarkImage(blob)
       const imageUri = await uploadImage(watermarked)
       const captureTime = exif.date ?? new Date().toISOString()
-      const author = user?.id ?? embeddedWallet.address
+      const author = user?.id ?? signingWallet.address
       const name = title.trim() ? title.trim() : `Memory ${captureTime.slice(0, 10)}`
       const metadata: MemoryMetadata = {
         name,
@@ -80,8 +88,8 @@ export function Preview() {
       }
       const metadataUri = await uploadMetadata(metadata)
       await mintMemory(
-        () => embeddedWallet.getEthereumProvider!(),
-        embeddedWallet.address as `0x${string}`,
+        () => signingWallet.getEthereumProvider!(),
+        signingWallet.address as `0x${string}`,
         metadataUri
       )
       navigate('/map')
@@ -93,9 +101,9 @@ export function Preview() {
     }
   }
 
-  const storageReady = isNftStorageConfigured()
+  const storageReady = isStorageConfigured()
 
-  function handleSavePhoto() {
+  const handleSavePhoto = () => {
     if (!imageBlob) return
     const url = URL.createObjectURL(imageBlob)
     const a = document.createElement('a')
@@ -108,57 +116,43 @@ export function Preview() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', position: 'relative' }}>
-      <button
-        type="button"
-        onClick={() => navigate('/profile')}
-        aria-label="Profile"
-        style={{
-          position: 'absolute',
-          top: 12,
-          left: 12,
-          zIndex: 10,
-          width: 32,
-          height: 32,
-          borderRadius: '999px',
-          border: '1px solid rgba(148,163,184,0.9)',
-          background: 'rgba(15,23,42,0.9)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          cursor: 'pointer',
-          fontSize: 14,
-          color: '#e5e5e5',
-        }}
-      >
-        ☾
-      </button>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: '100dvh',
+        position: 'relative',
+        background: 'var(--mem-bg-deep)',
+      }}
+    >
+      <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 10 }}>
+        <WalletProfileButton />
+      </div>
       {!storageReady && (
-        <div
-          style={{
-            padding: 16,
-            background: '#3f1f1f',
-            color: '#fca5a5',
-            fontSize: 14,
-            lineHeight: 1.5,
-          }}
-        >
-          <strong>NFT.Storage API key missing.</strong> Publish needs{' '}
-          <code style={{ color: '#e5e5e5' }}>VITE_NFT_STORAGE_API_KEY</code> at{' '}
-          <strong>build time</strong>. Add it in Vercel → Settings → Environment Variables (get a key at{' '}
-          <a href="https://nft.storage" style={{ color: '#93c5fd' }}>
-            nft.storage
-          </a>
-          ), then <strong>Redeploy</strong> with cache cleared. Locally, add it to <code style={{ color: '#e5e5e5' }}>.env</code> and restart dev.
+        <div className="mem-banner" role="alert">
+          <strong>IPFS storage not configured.</strong> Set{' '}
+          <code>VITE_PINATA_API_KEY</code> and <code>VITE_PINATA_SECRET</code> (recommended,{' '}
+          <a href="https://pinata.cloud">Pinata</a>
+          ) at <strong>build time</strong>, or <code>VITE_NFT_STORAGE_API_KEY</code> as a fallback. For
+          Vercel: Environment Variables → Redeploy with cache cleared. Locally: <code>.env</code> then
+          restart dev.
         </div>
       )}
       <img
         src={imageUrl}
-        alt="Preview"
-        style={{ width: '100%', flex: 1, objectFit: 'contain', background: '#111' }}
+        alt="Captured memory preview"
+        style={{ width: '100%', flex: 1, objectFit: 'contain', background: '#0c0b0a', minHeight: 0 }}
       />
-      <div style={{ padding: 16, background: '#0b0b0b', borderTop: '1px solid #1f1f1f' }}>
-        <label style={{ display: 'block', fontSize: 12, color: '#a3a3a3', marginBottom: 6 }}>
+      <div
+        style={{
+          padding: 18,
+          background: 'rgba(12, 10, 8, 0.95)',
+          borderTop: '1px solid var(--mem-border)',
+          backdropFilter: 'blur(10px)',
+          WebkitBackdropFilter: 'blur(10px)',
+        }}
+      >
+        <label className="mem-label" style={{ display: 'block', marginBottom: 8 }}>
           Title
         </label>
         <input
@@ -166,44 +160,28 @@ export function Preview() {
           onChange={(e) => setTitle(e.target.value)}
           placeholder="Give this memory a title"
           maxLength={60}
-          style={{
-            width: '100%',
-            padding: 12,
-            borderRadius: 12,
-            border: '1px solid #333',
-            background: '#111',
-            color: '#e5e5e5',
-            outline: 'none',
-          }}
+          className="mem-input"
+          style={{ width: '100%' }}
           disabled={publishing}
         />
       </div>
-      {error && <p style={{ padding: 12, margin: 0, color: '#f87171', fontSize: 14 }}>{error}</p>}
-      <div style={{ padding: 24, display: 'flex', gap: 12 }}>
-        <button
-          type="button"
-          onClick={handleSavePhoto}
-          style={btnStyle}
-          disabled={publishing}
-        >
+      {error ? <p className="mem-error" style={{ padding: '12px 18px', margin: 0, fontSize: 14, background: 'rgba(12,10,8,0.9)' }}>{error}</p> : null}
+      <div style={{ padding: '18px 18px max(18px, env(safe-area-inset-bottom))', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <button type="button" onClick={handleSavePhoto} className="mem-btn mem-btn--secondary" style={{ flex: 1, minWidth: 100 }} disabled={publishing}>
           Save photo
         </button>
-        <button
-          type="button"
-          onClick={() => navigate('/camera')}
-          style={btnStyle}
-          disabled={publishing}
-        >
+        <button type="button" onClick={() => navigate('/camera')} className="mem-btn mem-btn--secondary" style={{ flex: 1, minWidth: 100 }} disabled={publishing}>
           Retake
         </button>
         <button
           type="button"
           onClick={handlePublish}
           disabled={!ready || publishing || !storageReady}
-          style={{ ...btnStyle, background: '#3b82f6', color: 'white' }}
+          className="mem-btn mem-btn--primary"
+          style={{ flex: '2 1 180px' }}
         >
           {!storageReady
-            ? 'Set VITE_NFT_STORAGE_API_KEY'
+            ? 'Set storage keys'
             : !authenticated
               ? 'Sign in to publish'
               : publishing
@@ -213,13 +191,4 @@ export function Preview() {
       </div>
     </div>
   )
-}
-
-const btnStyle: React.CSSProperties = {
-  flex: 1,
-  padding: 14,
-  borderRadius: 12,
-  border: '1px solid #333',
-  background: '#1a1a1a',
-  color: '#e5e5e5',
 }

@@ -2,3 +2,4 @@
 /* tslint:disable */
 /* eslint-disable */
 export type { MemoryArchive } from "./MemoryArchive";
+export type { MemoryRegistry } from "./MemoryRegistry";
