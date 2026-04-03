@@ -35,7 +35,7 @@ Photo and location-based memory archive: capture a photo, mint it as an NFT on B
    - `VITE_MEMORY_ARCHIVE_CONTRACT_ADDRESS` – **MemoryArchive** (Camera → Preview publish flow and on-chain log reads)
    - `VITE_MEMORY_REGISTRY_CONTRACT_ADDRESS` – **MemoryRegistry** (Remember mint flow)
    - `VITE_INDEXER_URL` – base URL of the indexer HTTP API (default in dev: `http://localhost:8787`)
-   - `VITE_PINATA_API_KEY` + `VITE_PINATA_SECRET` – [Pinata](https://pinata.cloud) (recommended for uploads)
+   - Pinata uploads: `VITE_PINATA_JWT` (single JWT from Pinata) **or** `VITE_PINATA_API_KEY` + `VITE_PINATA_SECRET` ([Pinata](https://pinata.cloud))
    - Optional: `VITE_NFT_STORAGE_API_KEY` – [NFT.Storage](https://nft.storage) (fallback)
 
    **Privy dashboard (required for wallet login, especially on mobile):**

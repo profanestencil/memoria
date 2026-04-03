@@ -9,6 +9,8 @@ interface ImportMetaEnv {
   readonly VITE_NFT_STORAGE_API_KEY?: string
   readonly VITE_PINATA_API_KEY?: string
   readonly VITE_PINATA_SECRET?: string
+  /** Single Pinata JWT (`eyJ…`) — prefer this if the dashboard only shows one token */
+  readonly VITE_PINATA_JWT?: string
 }
 
 interface ImportMeta {

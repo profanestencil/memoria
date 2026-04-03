@@ -1,5 +1,6 @@
 import { PrivyProvider } from '@privy-io/react-auth'
 import { base, baseSepolia } from 'wagmi/chains'
+import { IllustMark } from '@/components/IllustMark'
 import { AppProvider } from './AppProvider'
 import { Router } from './Router'
 
@@ -10,7 +11,8 @@ const chain = chainName === 'base-sepolia' ? baseSepolia : base
 export function App() {
   if (!privyAppId) {
     return (
-      <div className="mem-config-error">
+      <div className="mem-config-error" style={{ position: 'relative', minHeight: '100dvh' }}>
+        <IllustMark />
         <h1>Privy app ID missing</h1>
         <p style={{ margin: '0 0 16px', color: 'var(--mem-text-muted)' }}>
           <code>VITE_PRIVY_APP_ID</code> was not set when this app was built. Vite bakes env in at{' '}

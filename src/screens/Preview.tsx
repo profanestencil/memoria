@@ -123,8 +123,8 @@ export function Preview() {
       {!storageReady && (
         <div className="mem-banner" role="alert">
           <strong>IPFS storage not configured.</strong> Set{' '}
-          <code>VITE_PINATA_API_KEY</code> and <code>VITE_PINATA_SECRET</code> (recommended,{' '}
-          <a href="https://pinata.cloud">Pinata</a>
+          <code>VITE_PINATA_JWT</code> (Pinata API key JWT) or <code>VITE_PINATA_API_KEY</code> +{' '}
+          <code>VITE_PINATA_SECRET</code> (<a href="https://pinata.cloud">Pinata</a>
           ) at <strong>build time</strong>, or <code>VITE_NFT_STORAGE_API_KEY</code> as a fallback. For
           Vercel: Environment Variables → Redeploy with cache cleared. Locally: <code>.env</code> then
           restart dev.

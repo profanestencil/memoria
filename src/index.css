@@ -539,3 +539,21 @@ textarea:focus-visible {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* Discrete partner mark — stays under map prompts (z-index 5+) */
+.mem-illust-mark {
+  position: fixed;
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(12px, env(safe-area-inset-bottom));
+  z-index: 4;
+  opacity: 0.28;
+  pointer-events: none;
+  user-select: none;
+}
+
+.mem-illust-mark__img {
+  display: block;
+  height: 12px;
+  width: auto;
+  max-width: min(60px, 20vw);
+}

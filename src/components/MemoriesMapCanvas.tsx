@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import { useWallets } from '@privy-io/react-auth'
@@ -27,6 +27,15 @@ type Props = {
   onMapReady?: (map: mapboxgl.Map) => void
 }
 
+type GeoUi = 'off' | 'requesting' | 'active' | 'need-tap' | 'denied' | 'unsupported'
+
+const clearGeoWatch = (watchIdRef: MutableRefObject<number | null>) => {
+  if (watchIdRef.current != null && typeof navigator !== 'undefined' && navigator.geolocation) {
+    navigator.geolocation.clearWatch(watchIdRef.current)
+    watchIdRef.current = null
+  }
+}
+
 export function MemoriesMapCanvas({ className, style, trackUser = true, onMapReady }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
@@ -38,6 +47,7 @@ export function MemoriesMapCanvas({ className, style, trackUser = true, onMapRea
   const userFocusedRef = useRef(false)
   const [mapReady, setMapReady] = useState(false)
   const [mapError, setMapError] = useState<string | null>(null)
+  const [geoUi, setGeoUi] = useState<GeoUi>('off')
   const [myMemories, setMyMemories] = useState<MemoryPin[]>([])
   const [publicMemories, setPublicMemories] = useState<MemoryPin[]>([])
   const { wallets } = useWallets()
@@ -46,6 +56,80 @@ export function MemoriesMapCanvas({ className, style, trackUser = true, onMapRea
     () => (signingWallet?.address ? (signingWallet.address as `0x${string}`) : null),
     [signingWallet?.address]
   )
+
+  const applyUserPosition = useCallback((lng: number, lat: number, animateCenter: boolean) => {
+    const map = mapRef.current
+    if (!map) return
+    if (!userMarkerRef.current) {
+      const el = document.createElement('div')
+      el.style.width = '14px'
+      el.style.height = '14px'
+      el.style.borderRadius = '50%'
+      el.style.background = '#e8c547'
+      el.style.boxShadow = '0 0 0 6px rgba(232, 197, 71, 0.22)'
+      el.style.border = '2px solid rgba(255,255,255,0.9)'
+      userMarkerRef.current = new mapboxgl.Marker({ element: el }).setLngLat([lng, lat]).addTo(map)
+    } else {
+      userMarkerRef.current.setLngLat([lng, lat])
+    }
+    if (animateCenter && !userFocusedRef.current) {
+      userFocusedRef.current = true
+      map.easeTo({ center: [lng, lat], zoom: 14, duration: 900 })
+    }
+  }, [])
+
+  const requestUserLocation = useCallback(
+    (fromUserGesture: boolean) => {
+      if (!trackUser || !mapRef.current || !navigator.geolocation) return
+      setGeoUi('requesting')
+      navigator.geolocation.getCurrentPosition(
+        (p) => {
+          setGeoUi('active')
+          applyUserPosition(p.coords.longitude, p.coords.latitude, true)
+          clearGeoWatch(watchIdRef)
+          watchIdRef.current = navigator.geolocation.watchPosition(
+            (q) => applyUserPosition(q.coords.longitude, q.coords.latitude, false),
+            () => {},
+            { enableHighAccuracy: true, maximumAge: 2000 }
+          )
+        },
+        (e) => {
+          if (e.code === e.PERMISSION_DENIED) setGeoUi('denied')
+          else setGeoUi('need-tap')
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: fromUserGesture ? 20000 : 12000,
+          maximumAge: fromUserGesture ? 0 : 3000,
+        }
+      )
+    },
+    [applyUserPosition, trackUser]
+  )
+
+  useEffect(() => {
+    if (!trackUser) {
+      setGeoUi('off')
+      clearGeoWatch(watchIdRef)
+      userMarkerRef.current?.remove()
+      userMarkerRef.current = null
+      userFocusedRef.current = false
+      return
+    }
+    if (!mapReady) {
+      clearGeoWatch(watchIdRef)
+      return
+    }
+    if (!navigator.geolocation) {
+      setGeoUi('unsupported')
+      return
+    }
+    requestUserLocation(false)
+  }, [mapReady, trackUser, requestUserLocation])
+
+  const handleShareLocation = useCallback(() => {
+    requestUserLocation(true)
+  }, [requestUserLocation])
 
   useEffect(() => {
     if (!mapboxTokenState.ok) return
@@ -83,57 +167,10 @@ export function MemoriesMapCanvas({ className, style, trackUser = true, onMapRea
     }
     window.addEventListener('resize', handleWindowResize)
 
-    const makeUserDot = () => {
-      const el = document.createElement('div')
-      el.style.width = '14px'
-      el.style.height = '14px'
-      el.style.borderRadius = '50%'
-      el.style.background = '#e8c547'
-      el.style.boxShadow = '0 0 0 6px rgba(232, 197, 71, 0.22)'
-      el.style.border = '2px solid rgba(255,255,255,0.9)'
-      return el
-    }
-
-    const setUserAt = (lng: number, lat: number, animateCenter: boolean) => {
-      if (!mapRef.current) return
-      if (!userMarkerRef.current) {
-        userMarkerRef.current = new mapboxgl.Marker({ element: makeUserDot() })
-          .setLngLat([lng, lat])
-          .addTo(mapRef.current)
-      } else {
-        userMarkerRef.current.setLngLat([lng, lat])
-      }
-      if (animateCenter && !userFocusedRef.current) {
-        userFocusedRef.current = true
-        mapRef.current.easeTo({ center: [lng, lat], zoom: 14, duration: 900 })
-      }
-    }
-
-    if (trackUser && navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (p) => {
-          setUserAt(p.coords.longitude, p.coords.latitude, true)
-        },
-        () => {},
-        { enableHighAccuracy: true, timeout: 10000 }
-      )
-      watchIdRef.current = navigator.geolocation.watchPosition(
-        (p) => {
-          setUserAt(p.coords.longitude, p.coords.latitude, false)
-        },
-        () => {},
-        { enableHighAccuracy: true, maximumAge: 2000 }
-      )
-    }
-
     return () => {
       window.removeEventListener('resize', handleWindowResize)
       map.off('error', handleMapError)
       setMapReady(false)
-      if (watchIdRef.current != null) {
-        navigator.geolocation.clearWatch(watchIdRef.current)
-        watchIdRef.current = null
-      }
       markersRef.current.forEach((m) => m.remove())
       markersRef.current = []
       userMarkerRef.current?.remove()
@@ -142,7 +179,7 @@ export function MemoriesMapCanvas({ className, style, trackUser = true, onMapRea
       map.remove()
       mapRef.current = null
     }
-  }, [trackUser])
+  }, [])
 
   useEffect(() => {
     if (!myAddress) {
@@ -255,9 +292,16 @@ export function MemoriesMapCanvas({ className, style, trackUser = true, onMapRea
     )
   }
 
+  const showGeoPrompt =
+    trackUser &&
+    mapReady &&
+    geoUi !== 'active' &&
+    geoUi !== 'off' &&
+    mapboxTokenState.ok &&
+    !mapError
+
   return (
     <div
-      ref={containerRef}
       className={className}
       style={{
         width: '100%',
@@ -266,7 +310,67 @@ export function MemoriesMapCanvas({ className, style, trackUser = true, onMapRea
         position: 'relative',
         ...style,
       }}
-    />
+    >
+      <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
+      {showGeoPrompt ? (
+        <div
+          role="region"
+          aria-label="Location access"
+          style={{
+            position: 'absolute',
+            left: 12,
+            right: 12,
+            bottom: 24,
+            zIndex: 5,
+            maxWidth: 420,
+            margin: '0 auto',
+            padding: '14px 16px',
+            borderRadius: 12,
+            background: 'rgba(12, 10, 8, 0.92)',
+            border: '1px solid var(--mem-border, rgba(255,248,235,0.15))',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.35)',
+            color: 'var(--mem-text, #f5f0e8)',
+            fontSize: 14,
+            lineHeight: 1.45,
+          }}
+        >
+          {geoUi === 'unsupported' ? (
+            <p style={{ margin: 0 }}>This browser does not support location. Use a device with GPS or try another browser.</p>
+          ) : geoUi === 'denied' ? (
+            <>
+              <p style={{ margin: '0 0 10px' }}>
+                Location is blocked for this site. Enable it in your browser or system settings so the map can center on you
+                and mints can use your position.
+              </p>
+              <button
+                type="button"
+                className="mem-btn mem-btn--secondary"
+                onClick={handleShareLocation}
+                style={{ width: '100%' }}
+              >
+                Try again
+              </button>
+            </>
+          ) : geoUi === 'requesting' ? (
+            <p style={{ margin: 0 }}>Requesting location… allow the prompt if your browser shows one.</p>
+          ) : (
+            <>
+              <p style={{ margin: '0 0 10px' }}>
+                Location is used to show your position on the map and for geo memories. Tap to allow.
+              </p>
+              <button
+                type="button"
+                className="mem-btn mem-btn--primary"
+                onClick={handleShareLocation}
+                style={{ width: '100%' }}
+              >
+                Share location
+              </button>
+            </>
+          )}
+        </div>
+      ) : null}
+    </div>
   )
 }
 

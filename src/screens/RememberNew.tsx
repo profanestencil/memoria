@@ -97,8 +97,9 @@ export function RememberNew() {
 
         {photoNeedsStorage ? (
           <div className="mem-banner" role="alert">
-            <strong>IPFS not configured.</strong> Set <code>VITE_PINATA_API_KEY</code> and{' '}
-            <code>VITE_PINATA_SECRET</code>, then redeploy, to publish a photo on-chain.
+            <strong>IPFS not configured.</strong> Set <code>VITE_PINATA_JWT</code> or{' '}
+            <code>VITE_PINATA_API_KEY</code> + <code>VITE_PINATA_SECRET</code>, then redeploy, to publish a
+            photo on-chain.
           </div>
         ) : null}
 
