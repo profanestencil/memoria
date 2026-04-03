@@ -1,19 +1,13 @@
 import { useNavigate, useLocation } from 'react-router-dom'
 import { usePrivy, useWallets } from '@privy-io/react-auth'
 import { useEffect, useState } from 'react'
-import { readExif } from '@/lib/exif'
-import { watermarkImage } from '@/lib/watermark'
-import {
-  uploadImage,
-  uploadMetadata,
-  ipfsToHttp,
-  isStorageConfigured,
-  type MemoryMetadata,
-} from '@/lib/storage'
-import { mintMemory } from '@/lib/mint'
-import { getCurrentPosition } from '@/lib/geo'
+import { isStorageConfigured } from '@/lib/storage'
+import { publishMemoryNft } from '@/lib/publishMemoryNft'
+import { mintMemoryRegistry } from '@/lib/mintMemoryRegistry'
 import { pickEthereumSigningWallet } from '@/lib/privyWallet'
 import { WalletProfileButton } from '@/components/WalletProfileButton'
+
+const memoryRegistryConfigured = Boolean(import.meta.env.VITE_MEMORY_REGISTRY_CONTRACT_ADDRESS)
 
 type LocationState = { imageBlob?: Blob; imageUrl?: string }
 
@@ -26,6 +20,7 @@ export function Preview() {
   const [publishing, setPublishing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [title, setTitle] = useState('')
+  const [note, setNote] = useState('')
 
   const imageUrl = state.imageUrl
   const imageBlob = state.imageBlob
@@ -67,31 +62,28 @@ export function Preview() {
     setPublishing(true)
     try {
       const blob = imageBlob!
-      const [coords, exif] = await Promise.all([getCurrentPosition(), readExif(blob)])
-      const watermarked = await watermarkImage(blob)
-      const imageUri = await uploadImage(watermarked)
-      const captureTime = exif.date ?? new Date().toISOString()
       const author = user?.id ?? signingWallet.address
-      const name = title.trim() ? title.trim() : `Memory ${captureTime.slice(0, 10)}`
-      const metadata: MemoryMetadata = {
-        name,
-        description: 'A memory minted on Memoria',
-        image: ipfsToHttp(imageUri),
-        attributes: [
-          { trait_type: 'title', value: name },
-          { trait_type: 'latitude', value: coords.latitude },
-          { trait_type: 'longitude', value: coords.longitude },
-          { trait_type: 'captureTime', value: captureTime },
-          { trait_type: 'author', value: author },
-          ...(exif.device ? [{ trait_type: 'device', value: exif.device }] : []),
-        ],
+      const published = await publishMemoryNft({
+        imageBlob: blob,
+        title,
+        note,
+        authorLabel: author,
+        getEthereumProvider: () => signingWallet.getEthereumProvider!(),
+        walletAddress: signingWallet.address as `0x${string}`,
+      })
+      if (memoryRegistryConfigured) {
+        await mintMemoryRegistry(
+          () => signingWallet.getEthereumProvider!(),
+          signingWallet.address as `0x${string}`,
+          {
+            title: published.title,
+            note: published.note,
+            latitudeE7: published.latitudeE7,
+            longitudeE7: published.longitudeE7,
+            isPublic: true,
+          }
+        )
       }
-      const metadataUri = await uploadMetadata(metadata)
-      await mintMemory(
-        () => signingWallet.getEthereumProvider!(),
-        signingWallet.address as `0x${string}`,
-        metadataUri
-      )
       navigate('/map')
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Publish failed'
@@ -152,18 +144,37 @@ export function Preview() {
           WebkitBackdropFilter: 'blur(10px)',
         }}
       >
-        <label className="mem-label" style={{ display: 'block', marginBottom: 8 }}>
-          Title
-        </label>
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Give this memory a title"
-          maxLength={60}
-          className="mem-input"
-          style={{ width: '100%' }}
-          disabled={publishing}
-        />
+        <div style={{ display: 'grid', gap: 12 }}>
+          <div>
+            <label className="mem-label" style={{ display: 'block', marginBottom: 8 }}>
+              Title
+            </label>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Give this memory a title"
+              maxLength={60}
+              className="mem-input"
+              style={{ width: '100%' }}
+              disabled={publishing}
+            />
+          </div>
+          <div>
+            <label className="mem-label" style={{ display: 'block', marginBottom: 8 }}>
+              Note
+            </label>
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="A short note (optional)"
+              maxLength={240}
+              rows={3}
+              className="mem-textarea"
+              style={{ width: '100%' }}
+              disabled={publishing}
+            />
+          </div>
+        </div>
       </div>
       {error ? <p className="mem-error" style={{ padding: '12px 18px', margin: 0, fontSize: 14, background: 'rgba(12,10,8,0.9)' }}>{error}</p> : null}
       <div style={{ padding: '18px 18px max(18px, env(safe-area-inset-bottom))', display: 'flex', gap: 10, flexWrap: 'wrap' }}>

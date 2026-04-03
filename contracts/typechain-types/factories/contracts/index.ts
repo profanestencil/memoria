@@ -2,4 +2,5 @@
 /* tslint:disable */
 /* eslint-disable */
 export { MemoryArchive__factory } from "./MemoryArchive__factory";
+export { MemoryArchiveGeo__factory } from "./MemoryArchiveGeo__factory";
 export { MemoryRegistry__factory } from "./MemoryRegistry__factory";

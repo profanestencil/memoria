@@ -3,8 +3,9 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import type { Map as MapboxMap } from 'mapbox-gl'
 import { MemoriesMapCanvas } from '@/components/MemoriesMapCanvas'
 import { WalletProfileButton } from '@/components/WalletProfileButton'
+import { getMapboxClientTokenState } from '@/lib/mapboxClientToken'
 
-const token = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN
+const mapboxState = getMapboxClientTokenState()
 
 export function Map() {
   const navigate = useNavigate()
@@ -23,13 +24,13 @@ export function Map() {
     map.easeTo({ center: [lo, la], zoom: 15, duration: 900 })
   }, [lat, lng])
 
-  if (!token) {
+  if (!mapboxState.ok) {
     return (
       <div className="mem-page">
         <div className="mem-config-error">
-          <h1>Mapbox token missing</h1>
-          <p style={{ margin: 0, color: 'var(--mem-text-muted)' }}>
-            Set <code>VITE_MAPBOX_ACCESS_TOKEN</code> in your environment, then restart the dev server.
+          <h1>Mapbox token</h1>
+          <p style={{ margin: 0, color: 'var(--mem-text-muted)', lineHeight: 1.6 }}>
+            {mapboxState.message}
           </p>
           <button type="button" className="mem-btn mem-btn--secondary" style={{ marginTop: 24, maxWidth: 200 }} onClick={() => navigate('/')}>
             Home

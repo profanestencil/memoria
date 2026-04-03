@@ -26,5 +26,7 @@ export type { IERC165 } from "./@openzeppelin/contracts/utils/introspection/IERC
 export { IERC165__factory } from "./factories/@openzeppelin/contracts/utils/introspection/IERC165__factory";
 export type { MemoryArchive } from "./contracts/MemoryArchive";
 export { MemoryArchive__factory } from "./factories/contracts/MemoryArchive__factory";
+export type { MemoryArchiveGeo } from "./contracts/MemoryArchiveGeo";
+export { MemoryArchiveGeo__factory } from "./factories/contracts/MemoryArchiveGeo__factory";
 export type { MemoryRegistry } from "./contracts/MemoryRegistry";
 export { MemoryRegistry__factory } from "./factories/contracts/MemoryRegistry__factory";

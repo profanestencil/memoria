@@ -5,6 +5,7 @@ interface ImportMetaEnv {
   readonly VITE_MAPBOX_ACCESS_TOKEN: string
   readonly VITE_BASE_RPC_URL: string
   readonly VITE_MEMORY_ARCHIVE_CONTRACT_ADDRESS: string
+  readonly VITE_MEMORY_REGISTRY_CONTRACT_ADDRESS?: string
   readonly VITE_NFT_STORAGE_API_KEY?: string
   readonly VITE_PINATA_API_KEY?: string
   readonly VITE_PINATA_SECRET?: string

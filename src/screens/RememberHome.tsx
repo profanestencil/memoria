@@ -27,7 +27,7 @@ export function RememberHome() {
         <p className="mem-display mem-subtitle" style={{ marginBottom: 8, fontSize: '0.82rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--mem-text-dim)' }}>
           Onchain memories
         </p>
-        <h1 className="mem-title-xl mem-display">Remember this place.</h1>
+        <h1 className="mem-title-xl mem-display">Keeping things whole.</h1>
         <p className="mem-subtitle">
           Mint a memory anchored in time and coordinates. Find it again on the map—or through the
           lens.

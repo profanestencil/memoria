@@ -28,7 +28,7 @@ Photo and location-based memory archive: capture a photo, mint it as an NFT on B
    Copy `.env.example` to `.env` and set:
 
    - `VITE_PRIVY_APP_ID` – [Privy dashboard](https://dashboard.privy.io)
-   - `VITE_MAPBOX_ACCESS_TOKEN` – [Mapbox](https://account.mapbox.com)
+   - `VITE_MAPBOX_ACCESS_TOKEN` – [Mapbox](https://account.mapbox.com) **public** default token (`pk.…`), not a secret token (`sk.…`)
    - `VITE_CHAIN` – `base` or `base-sepolia` (must match the network where your contracts are deployed)
    - `VITE_BASE_RPC_URL` – e.g. `https://mainnet.base.org`
    - `VITE_BASE_SEPOLIA_RPC_URL` – e.g. `https://sepolia.base.org` (when using testnet)

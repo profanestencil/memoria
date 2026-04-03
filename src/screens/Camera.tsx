@@ -3,8 +3,10 @@ import { useRef, useEffect, useState } from 'react'
 import { getCurrentPosition } from '@/lib/geo'
 import { MemoriesMapCanvas } from '@/components/MemoriesMapCanvas'
 import { WalletProfileButton } from '@/components/WalletProfileButton'
+import { getMapboxClientTokenState } from '@/lib/mapboxClientToken'
 
-const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN
+const mapboxState = getMapboxClientTokenState()
+const MAPBOX_TOKEN = mapboxState.ok ? mapboxState.token : ''
 
 /** Camera style filters: id and CSS filter string applied at capture. */
 const CAMERA_FILTERS: { id: string; label: string; filter: string }[] = [

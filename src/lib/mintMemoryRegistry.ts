@@ -1,10 +1,9 @@
 import { createWalletClient, custom, type WalletClient } from 'viem'
 import { writeContract } from 'viem/actions'
-import { base, baseSepolia } from 'viem/chains'
 import { MEMORY_REGISTRY_ABI } from '@/lib/abi/memory-registry'
+import { appChain } from '@/lib/chain'
 
 const contractAddress = import.meta.env.VITE_MEMORY_REGISTRY_CONTRACT_ADDRESS as `0x${string}`
-const chain = import.meta.env.VITE_CHAIN === 'base-sepolia' ? baseSepolia : base
 
 export async function mintMemoryRegistry(
   getEthereumProvider: () => Promise<unknown>,
@@ -17,8 +16,13 @@ export async function mintMemoryRegistry(
     isPublic: boolean
   }
 ): Promise<{ hash: `0x${string}`; memoryId?: bigint }> {
-  if (!contractAddress) throw new Error('VITE_MEMORY_REGISTRY_CONTRACT_ADDRESS not set')
+  if (!contractAddress) {
+    throw new Error(
+      'Memory Registry is not configured. Deploy the MemoryRegistry contract, set VITE_MEMORY_REGISTRY_CONTRACT_ADDRESS in your env, and redeploy — or use Camera → Publish to mint an NFT instead.'
+    )
+  }
   const provider = await getEthereumProvider()
+  const chain = appChain
   const client = createWalletClient({
     account: walletAddress,
     chain,

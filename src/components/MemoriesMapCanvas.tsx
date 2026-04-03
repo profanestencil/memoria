@@ -3,8 +3,9 @@ import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import { useWallets } from '@privy-io/react-auth'
 import { pickEthereumSigningWallet } from '@/lib/privyWallet'
+import { getMapboxClientTokenState } from '@/lib/mapboxClientToken'
 
-const token = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN
+const mapboxTokenState = getMapboxClientTokenState()
 const indexerUrl = import.meta.env.VITE_INDEXER_URL ?? 'http://localhost:8787'
 
 export type MemoryPin = {
@@ -35,6 +36,7 @@ export function MemoriesMapCanvas({ className, style, trackUser = true, onMapRea
   const userMarkerRef = useRef<mapboxgl.Marker | null>(null)
   const watchIdRef = useRef<number | null>(null)
   const userFocusedRef = useRef(false)
+  const [mapReady, setMapReady] = useState(false)
   const [mapError, setMapError] = useState<string | null>(null)
   const [myMemories, setMyMemories] = useState<MemoryPin[]>([])
   const [publicMemories, setPublicMemories] = useState<MemoryPin[]>([])
@@ -46,20 +48,40 @@ export function MemoriesMapCanvas({ className, style, trackUser = true, onMapRea
   )
 
   useEffect(() => {
-    if (!token) {
-      setMapError('Set VITE_MAPBOX_ACCESS_TOKEN')
-      return
-    }
+    if (!mapboxTokenState.ok) return
     if (!containerRef.current) return
-    mapboxgl.accessToken = token
+    mapboxgl.accessToken = mapboxTokenState.token
     const map = new mapboxgl.Map({
       container: containerRef.current,
       style: 'mapbox://styles/mapbox/dark-v11',
       center: [-98, 39],
       zoom: 3,
+      attributionControl: true,
     })
     mapRef.current = map
     onMapReadyRef.current?.(map)
+
+    const handleMapError = (e: { error?: Error }) => {
+      const msg = e.error?.message?.trim() || 'Map failed to load tiles or style.'
+      setMapError(msg)
+    }
+    map.on('error', handleMapError)
+
+    const finishInit = () => {
+      map.resize()
+      requestAnimationFrame(() => map.resize())
+      setMapReady(true)
+    }
+    if (map.loaded()) {
+      finishInit()
+    } else {
+      map.once('load', finishInit)
+    }
+
+    const handleWindowResize = () => {
+      map.resize()
+    }
+    window.addEventListener('resize', handleWindowResize)
 
     const makeUserDot = () => {
       const el = document.createElement('div')
@@ -105,6 +127,9 @@ export function MemoriesMapCanvas({ className, style, trackUser = true, onMapRea
     }
 
     return () => {
+      window.removeEventListener('resize', handleWindowResize)
+      map.off('error', handleMapError)
+      setMapReady(false)
       if (watchIdRef.current != null) {
         navigator.geolocation.clearWatch(watchIdRef.current)
         watchIdRef.current = null
@@ -134,7 +159,7 @@ export function MemoriesMapCanvas({ className, style, trackUser = true, onMapRea
 
   useEffect(() => {
     const map = mapRef.current
-    if (!map) return
+    if (!map || !mapReady) return
 
     async function loadPublicInView() {
       if (!mapRef.current) return
@@ -157,11 +182,11 @@ export function MemoriesMapCanvas({ className, style, trackUser = true, onMapRea
     return () => {
       map.off('moveend', loadPublicInView)
     }
-  }, [])
+  }, [mapReady, indexerUrl])
 
   useEffect(() => {
     const map = mapRef.current
-    if (!map) return
+    if (!map || !mapReady) return
 
     markersRef.current.forEach((m) => m.remove())
     markersRef.current = []
@@ -204,7 +229,19 @@ export function MemoriesMapCanvas({ className, style, trackUser = true, onMapRea
 
       markersRef.current.push(marker)
     }
-  }, [publicMemories, myMemories, myAddress])
+  }, [mapReady, publicMemories, myMemories, myAddress])
+
+  if (!mapboxTokenState.ok) {
+    return (
+      <div
+        style={{ padding: 20, color: 'var(--mem-danger)', lineHeight: 1.5, ...style }}
+        className={className}
+        role="alert"
+      >
+        {mapboxTokenState.message}
+      </div>
+    )
+  }
 
   if (mapError) {
     return (
@@ -218,7 +255,19 @@ export function MemoriesMapCanvas({ className, style, trackUser = true, onMapRea
     )
   }
 
-  return <div ref={containerRef} className={className} style={{ width: '100%', height: '100%', ...style }} />
+  return (
+    <div
+      ref={containerRef}
+      className={className}
+      style={{
+        width: '100%',
+        height: '100%',
+        minHeight: 0,
+        position: 'relative',
+        ...style,
+      }}
+    />
+  )
 }
 
 function shortAddr(a: string) {

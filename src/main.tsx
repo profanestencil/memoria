@@ -1,7 +1,10 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './app/App'
+import { ensureMapboxGlWorkerConfigured } from '@/lib/mapboxWorker'
 import './index.css'
+
+ensureMapboxGlWorkerConfigured()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
