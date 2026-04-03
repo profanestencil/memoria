@@ -4,7 +4,10 @@ import { useEffect, useState } from 'react'
 import { isStorageConfigured } from '@/lib/storage'
 import { publishMemoryNft } from '@/lib/publishMemoryNft'
 import { mintMemoryRegistry } from '@/lib/mintMemoryRegistry'
-import { connectRainbowWallet, pickEthereumSigningWallet } from '@/lib/privyWallet'
+import { attachMemoryCoverImage } from '@/lib/indexerAttachImage'
+import { buildMapboxStaticPreviewUrl } from '@/lib/mapboxStatic'
+import { getMapboxClientTokenState } from '@/lib/mapboxClientToken'
+import { connectRainbowWallet, isPrivyEmbeddedWallet, pickEthereumSigningWallet } from '@/lib/privyWallet'
 import { WalletProfileButton } from '@/components/WalletProfileButton'
 
 const memoryRegistryConfigured = Boolean(import.meta.env.VITE_MEMORY_REGISTRY_CONTRACT_ADDRESS)
@@ -15,12 +18,13 @@ export function Preview() {
   const navigate = useNavigate()
   const location = useLocation()
   const state = (location.state ?? {}) as LocationState
-  const { ready, authenticated, login, user, connectWallet } = usePrivy()
+  const { ready, authenticated, login, user, connectWallet, sendTransaction } = usePrivy()
   const { wallets, ready: walletsReady } = useWallets()
   const [publishing, setPublishing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [title, setTitle] = useState('')
   const [note, setNote] = useState('')
+  const [previewCoords, setPreviewCoords] = useState<{ lat: number; lng: number } | null>(null)
 
   const imageUrl = state.imageUrl
   const imageBlob = state.imageBlob
@@ -49,6 +53,21 @@ export function Preview() {
     }
   }, [imageUrl])
 
+  useEffect(() => {
+    if (!imageUrl || !navigator.geolocation) return
+    navigator.geolocation.getCurrentPosition(
+      (p) => setPreviewCoords({ lat: p.coords.latitude, lng: p.coords.longitude }),
+      () => setPreviewCoords(null),
+      { enableHighAccuracy: true, maximumAge: 60_000, timeout: 12_000 }
+    )
+  }, [imageUrl])
+
+  const mapboxState = getMapboxClientTokenState()
+  const staticMapUrl =
+    previewCoords && mapboxState.ok
+      ? buildMapboxStaticPreviewUrl(mapboxState.token, previewCoords.lat, previewCoords.lng)
+      : null
+
   const handlePublish = async () => {
     if (!authenticated) {
       login()
@@ -67,28 +86,48 @@ export function Preview() {
     try {
       const blob = imageBlob!
       const author = user?.id ?? signingWallet.address
+      const walletAddress = signingWallet.address as `0x${string}`
+      const sponsorFromEnv = import.meta.env.VITE_PRIVY_GAS_SPONSORSHIP !== 'false'
+      const usePrivySponsor = sponsorFromEnv && isPrivyEmbeddedWallet(signingWallet)
+      const evmSigner = usePrivySponsor
+        ? {
+            type: 'privy' as const,
+            sendTransaction,
+            sponsor: true,
+          }
+        : {
+            type: 'eip1193' as const,
+            getEthereumProvider: () => signingWallet.getEthereumProvider!(),
+          }
       const published = await publishMemoryNft({
         imageBlob: blob,
         title,
         note,
         authorLabel: author,
-        getEthereumProvider: () => signingWallet.getEthereumProvider!(),
-        walletAddress: signingWallet.address as `0x${string}`,
+        walletAddress,
+        evmSigner,
       })
       if (memoryRegistryConfigured) {
-        await mintMemoryRegistry(
-          () => signingWallet.getEthereumProvider!(),
-          signingWallet.address as `0x${string}`,
-          {
-            title: published.title,
-            note: published.note,
-            latitudeE7: published.latitudeE7,
-            longitudeE7: published.longitudeE7,
-            isPublic: true,
+        const reg = await mintMemoryRegistry(evmSigner, walletAddress, {
+          title: published.title,
+          note: published.note,
+          latitudeE7: published.latitudeE7,
+          longitudeE7: published.longitudeE7,
+          isPublic: true,
+        })
+        if (reg.memoryId != null) {
+          try {
+            await attachMemoryCoverImage({
+              memoryId: reg.memoryId.toString(),
+              creator: walletAddress,
+              imageUrl: published.coverImageUrl,
+            })
+          } catch {
+            /* Pin still appears; thumbnail may fill in after indexer sync */
           }
-        )
+        }
       }
-      navigate('/map')
+      navigate('/map', { state: { mapRefreshEpoch: Date.now() } })
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Publish failed'
       setError(msg.includes('denied') || msg.includes('timeout') ? 'Location required. Enable location and try again.' : msg)
@@ -112,15 +151,7 @@ export function Preview() {
   }
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        minHeight: '100dvh',
-        position: 'relative',
-        background: 'var(--mem-bg-deep)',
-      }}
-    >
+    <div className="mem-preview-page">
       <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 10 }}>
         <WalletProfileButton />
       </div>
@@ -134,11 +165,20 @@ export function Preview() {
           restart dev.
         </div>
       )}
-      <img
-        src={imageUrl}
-        alt="Captured memory preview"
-        style={{ width: '100%', flex: 1, objectFit: 'contain', background: '#0c0b0a', minHeight: 0 }}
-      />
+      <div className="mem-preview-visual">
+        {staticMapUrl ? (
+          <img src={staticMapUrl} alt="" className="mem-preview-map-thumb" decoding="async" />
+        ) : (
+          <div
+            className="mem-preview-map-thumb mem-preview-map-thumb--placeholder"
+            role="img"
+            aria-label="Map preview loads when location is available"
+          />
+        )}
+        <div className="mem-preview-photo-card">
+          <img src={imageUrl} alt="Captured memory preview" className="mem-preview-photo" decoding="async" />
+        </div>
+      </div>
       <div
         style={{
           padding: 18,
@@ -211,3 +251,4 @@ export function Preview() {
     </div>
   )
 }
+

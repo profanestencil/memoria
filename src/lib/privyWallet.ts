@@ -16,6 +16,10 @@ export const connectRainbowWallet = (
 
 const canEthereumSign = (w: ConnectedWallet) => typeof w.getEthereumProvider === 'function'
 
+/** True when this connected wallet is Privy’s embedded signer (eligible for `sendTransaction` + gas sponsorship). */
+export const isPrivyEmbeddedWallet = (w: ConnectedWallet | undefined) =>
+  Boolean(w && w.walletClientType === 'privy' && canEthereumSign(w))
+
 /**
  * Wallet used for EIP-1193 signing (embedded Privy or external e.g. Rainbow / WalletConnect).
  * Prefer Privy’s embedded helper so email/social users get a signer as soon as it exists in the list.

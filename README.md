@@ -44,6 +44,7 @@ Photo and location-based memory archive: capture a photo, mint it as an NFT on B
    - Under **Domains**, allow your production URL and `http://localhost:5173` (or your dev port) for local testing.
    - Enable **Base** (chain id `8453` mainnet, `84532` Sepolia) so external wallets match the app’s `supportedChains`.
    - For WalletConnect on mobile browsers, ensure external wallet / WalletConnect is not blocked by your app’s login-method settings.
+   - **Gas sponsorship (embedded wallets):** In the [Privy dashboard](https://dashboard.privy.io/apps?page=gas_sponsorship), turn on gas sponsorship and add **Base** / **Base Sepolia** to the allowed chains. Allow **client-initiated** sponsored transactions if mints run in the browser. The app calls `sendTransaction` with `sponsor: true` for Privy embedded signers only (Rainbow / MetaMask still pay their own gas). Optional: set `VITE_PRIVY_GAS_SPONSORSHIP=false` to disable the sponsor flag for debugging.
 
 3. **Contracts (Base Sepolia or Base mainnet)**
 
@@ -87,6 +88,10 @@ Photo and location-based memory archive: capture a photo, mint it as an NFT on B
 
    Point `VITE_INDEXER_URL` in the app `.env` at this service (same host/port, no trailing slash).
 
+   After publish, the app calls `POST /memories/:memoryId/image` with the cover image URL (creator address must match the on-chain owner) so map pins and the profile “memories” grid can show thumbnails.
+
+   **Production deploy:** This process must stay running (not Vercel static/serverless as-is). Use `indexer/Dockerfile` on Fly.io, Railway, Render, a VPS, etc. Set `MEMORY_REGISTRY_ADDRESS`, `CHAIN` (`base` or `base-sepolia`), optional `BASE_RPC_URL`, and `PORT` if the platform assigns one. Persist state with a volume: the image uses `DATA_DIR=/data` (see `indexer/src/store.js`).
+
 5. **Run the app**
 
    ```bash
@@ -101,7 +106,7 @@ Photo and location-based memory archive: capture a photo, mint it as an NFT on B
 2. **Camera** – Take a photo (branded “Memoria”).
 3. **Preview** – Sign in with Privy (creates embedded wallet if needed), then **Publish**: watermarked upload to IPFS, metadata (geo, EXIF, date, author), and mint on Base via **MemoryArchive**.
 4. **Remember** – Separate flow: create a memory minted through **MemoryRegistry**; with the indexer running, public memories appear on the world map.
-5. **Map** – Pins for your archive (e.g. logs from **MemoryArchive**) and/or the Remember map (indexer + **MemoryRegistry**); tap a pin to open AR.
+5. **Map** – Indexer-backed pins (public in view + yours); circular thumbnails when a cover image was attached. Tap a pin for a preview card (**i** = full detail with owner + copy, **×** closes the card). After minting, the map refetches automatically.
 6. **AR** – Tap **Enter AR** to start WebXR; the photo appears on a plane toward the real-world location (GPS/compass-based).
 
 ## Plan

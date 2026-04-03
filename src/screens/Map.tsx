@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import type { Map as MapboxMap } from 'mapbox-gl'
 import { MemoriesMapCanvas } from '@/components/MemoriesMapCanvas'
 import { WalletProfileButton } from '@/components/WalletProfileButton'
@@ -7,8 +7,12 @@ import { getMapboxClientTokenState } from '@/lib/mapboxClientToken'
 
 const mapboxState = getMapboxClientTokenState()
 
+type MapLocationState = { mapRefreshEpoch?: number }
+
 export function Map() {
   const navigate = useNavigate()
+  const { state } = useLocation()
+  const mapRefreshEpoch = (state as MapLocationState | null)?.mapRefreshEpoch ?? 0
   const [searchParams] = useSearchParams()
   const mapInstanceRef = useRef<MapboxMap | null>(null)
 
@@ -44,6 +48,7 @@ export function Map() {
     <div style={{ position: 'relative', width: '100vw', height: '100vh' }}>
       <MemoriesMapCanvas
         trackUser
+        refreshEpoch={mapRefreshEpoch}
         style={{ width: '100%', height: '100%' }}
         onMapReady={(m) => {
           mapInstanceRef.current = m

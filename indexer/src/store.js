@@ -1,7 +1,8 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
-const dataPath = path.join(process.cwd(), 'data.json')
+const dataDir = process.env.DATA_DIR ?? process.cwd()
+const dataPath = path.join(dataDir, 'data.json')
 
 export async function loadStore() {
   try {

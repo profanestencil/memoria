@@ -12,6 +12,26 @@ export const MEMORY_REGISTRY_ABI = [
       { indexed: false, name: 'title', type: 'string' },
       { indexed: false, name: 'note', type: 'string' }
     ]
+  },
+  {
+    type: 'function',
+    name: 'getMemory',
+    stateMutability: 'view',
+    inputs: [{ name: 'memoryId', type: 'uint256' }],
+    outputs: [
+      {
+        name: 'm',
+        type: 'tuple',
+        components: [
+          { name: 'creator', type: 'address' },
+          { name: 'timestamp', type: 'uint64' },
+          { name: 'latitudeE7', type: 'int64' },
+          { name: 'longitudeE7', type: 'int64' },
+          { name: 'isPublic', type: 'bool' },
+          { name: 'title', type: 'string' },
+          { name: 'note', type: 'string' }
+        ]
+      }
+    ]
   }
 ]
-

@@ -4,6 +4,8 @@ import 'mapbox-gl/dist/mapbox-gl.css'
 import { useWallets } from '@privy-io/react-auth'
 import { pickEthereumSigningWallet } from '@/lib/privyWallet'
 import { getMapboxClientTokenState } from '@/lib/mapboxClientToken'
+import type { MemoryPin } from '@/lib/memoryPin'
+import { MemoryPinFull, MemoryPinPeek } from '@/components/MemoryInspect'
 
 const mapboxTokenState = getMapboxClientTokenState()
 const indexerUrl = (import.meta.env.VITE_INDEXER_URL ?? 'http://localhost:8787').replace(/\/$/, '')
@@ -19,23 +21,14 @@ const indexerUrlLooksBrokenInProd = (): string | null => {
   return null
 }
 
-export type MemoryPin = {
-  memoryId: string
-  creator: `0x${string}`
-  timestamp: number
-  latitude: number
-  longitude: number
-  isPublic: boolean
-  title: string
-  note: string
-}
-
 type Props = {
   className?: string
   style?: React.CSSProperties
   /** Follow user: initial center + zoom, then moving dot (watchPosition). */
   trackUser?: boolean
   onMapReady?: (map: mapboxgl.Map) => void
+  /** Bumps when navigating here after mint so pins refetch. */
+  refreshEpoch?: number
 }
 
 type GeoUi = 'off' | 'requesting' | 'active' | 'need-tap' | 'denied' | 'unsupported'
@@ -47,7 +40,13 @@ const clearGeoWatch = (watchIdRef: MutableRefObject<number | null>) => {
   }
 }
 
-export function MemoriesMapCanvas({ className, style, trackUser = true, onMapReady }: Props) {
+export function MemoriesMapCanvas({
+  className,
+  style,
+  trackUser = true,
+  onMapReady,
+  refreshEpoch = 0,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
   const onMapReadyRef = useRef(onMapReady)
@@ -62,6 +61,8 @@ export function MemoriesMapCanvas({ className, style, trackUser = true, onMapRea
   const [myMemories, setMyMemories] = useState<MemoryPin[]>([])
   const [publicMemories, setPublicMemories] = useState<MemoryPin[]>([])
   const [indexerFetchHint, setIndexerFetchHint] = useState<string | null>(null)
+  const [selectedPin, setSelectedPin] = useState<MemoryPin | null>(null)
+  const [detailPin, setDetailPin] = useState<MemoryPin | null>(null)
   const indexerConfigHint = indexerUrlLooksBrokenInProd()
   const indexerBanner = indexerConfigHint ?? indexerFetchHint
   const { wallets } = useWallets()
@@ -70,6 +71,34 @@ export function MemoriesMapCanvas({ className, style, trackUser = true, onMapRea
     () => (signingWallet?.address ? (signingWallet.address as `0x${string}`) : null),
     [signingWallet?.address]
   )
+
+  const fetchMyMemories = useCallback(async () => {
+    if (!myAddress) {
+      setMyMemories([])
+      return
+    }
+    const u = new URL('/memories', indexerUrl)
+    u.searchParams.set('user', myAddress)
+    try {
+      const r = await fetch(u.toString())
+      if (!r.ok) {
+        setIndexerFetchHint(`Indexer error ${r.status} loading your pins (${u.origin}).`)
+        setMyMemories([])
+        return
+      }
+      const j = (await r.json()) as { memories?: MemoryPin[] }
+      setMyMemories(j.memories ?? [])
+    } catch {
+      setMyMemories([])
+      setIndexerFetchHint(
+        `Could not reach indexer at ${indexerUrl}. Is it running with CORS and a public URL?`
+      )
+    }
+  }, [myAddress])
+
+  useEffect(() => {
+    void fetchMyMemories()
+  }, [fetchMyMemories, refreshEpoch])
 
   const applyUserPosition = useCallback((lng: number, lat: number, animateCenter: boolean) => {
     const map = mapRef.current
@@ -196,40 +225,6 @@ export function MemoriesMapCanvas({ className, style, trackUser = true, onMapRea
   }, [])
 
   useEffect(() => {
-    if (!myAddress) {
-      setMyMemories([])
-      return
-    }
-    const u = new URL('/memories', indexerUrl)
-    u.searchParams.set('user', myAddress)
-    let cancelled = false
-    fetch(u.toString())
-      .then(async (r) => {
-        if (!r.ok) {
-          if (!cancelled) {
-            setIndexerFetchHint(`Indexer error ${r.status} loading your pins (${u.origin}).`)
-          }
-          return { memories: [] as MemoryPin[] }
-        }
-        return r.json() as Promise<{ memories?: MemoryPin[] }>
-      })
-      .then((j) => {
-        if (!cancelled) setMyMemories(j.memories ?? [])
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setMyMemories([])
-          setIndexerFetchHint(
-            `Could not reach indexer at ${indexerUrl}. Is it running with CORS and a public URL?`
-          )
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [myAddress])
-
-  useEffect(() => {
     const map = mapRef.current
     if (!map || !mapReady) return
 
@@ -259,7 +254,7 @@ export function MemoriesMapCanvas({ className, style, trackUser = true, onMapRea
       }
     }
 
-    loadPublicInView()
+    void loadPublicInView()
     const onIdle = () => {
       void loadPublicInView()
     }
@@ -269,7 +264,17 @@ export function MemoriesMapCanvas({ className, style, trackUser = true, onMapRea
       map.off('moveend', loadPublicInView)
       map.off('idle', onIdle)
     }
-  }, [mapReady, indexerUrl])
+  }, [mapReady, indexerUrl, refreshEpoch])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapReady) return
+    const clearSelection = () => setSelectedPin(null)
+    map.on('click', clearSelection)
+    return () => {
+      map.off('click', clearSelection)
+    }
+  }, [mapReady])
 
   useEffect(() => {
     const map = mapRef.current
@@ -287,33 +292,44 @@ export function MemoriesMapCanvas({ className, style, trackUser = true, onMapRea
       seen.add(key)
 
       const isMine = myAddress ? mem.creator.toLowerCase() === myAddress.toLowerCase() : false
+      const showAsPoi = mem.isPublic || isMine
+      const size = showAsPoi && mem.imageUrl ? (isMine ? 40 : 36) : isMine ? 34 : 28
 
-      const el = document.createElement('div')
-      el.className = 'memory-marker'
-      el.style.width = isMine ? '34px' : '28px'
-      el.style.height = isMine ? '34px' : '28px'
+      const el = document.createElement('button')
+      el.type = 'button'
+      el.className = 'memory-marker-el'
+      el.setAttribute('aria-label', mem.title || 'Memory pin')
+      el.style.width = `${size}px`
+      el.style.height = `${size}px`
       el.style.borderRadius = '50%'
-      el.style.background = isMine ? '#c9a227' : '#6b5344'
-      el.style.border = '2px solid rgba(255,248,235,0.92)'
       el.style.cursor = 'pointer'
+      el.style.padding = '0'
+      el.style.border = '2px solid rgba(255,248,235,0.92)'
       el.style.boxShadow = isMine
         ? '0 0 0 6px rgba(201, 162, 39, 0.22)'
         : '0 0 0 5px rgba(107, 83, 68, 0.2)'
+      el.style.overflow = 'hidden'
+      el.style.background = isMine ? '#c9a227' : '#6b5344'
+      if (showAsPoi && mem.imageUrl) {
+        const img = document.createElement('img')
+        img.src = mem.imageUrl
+        img.alt = ''
+        img.draggable = false
+        img.style.width = '100%'
+        img.style.height = '100%'
+        img.style.objectFit = 'cover'
+        img.style.display = 'block'
+        img.style.pointerEvents = 'none'
+        el.appendChild(img)
+      }
+
+      el.addEventListener('click', (e) => {
+        e.stopPropagation()
+        setSelectedPin(mem)
+        setDetailPin(null)
+      })
 
       const marker = new mapboxgl.Marker({ element: el }).setLngLat([mem.longitude, mem.latitude]).addTo(map)
-
-      const when = mem.timestamp ? new Date(mem.timestamp * 1000).toLocaleString() : ''
-      const popupHtml = `
-        <div style="max-width:240px">
-          <div style="font-weight:600;margin-bottom:6px">${escapeHtml(mem.title || 'Memory')}</div>
-          ${mem.note ? `<div style="margin-bottom:8px;opacity:0.9;white-space:pre-wrap">${escapeHtml(mem.note)}</div>` : ''}
-          ${when ? `<div style="font-size:12px;opacity:0.75;margin-bottom:4px">${escapeHtml(when)}</div>` : ''}
-          <div style="font-size:12px;opacity:0.75">${isMine ? 'You' : shortAddr(mem.creator)} • ${mem.isPublic ? 'Public' : 'Private'}</div>
-        </div>
-      `
-      const popup = new mapboxgl.Popup({ closeButton: false, offset: 18 }).setHTML(popupHtml)
-      marker.setPopup(popup)
-
       markersRef.current.push(marker)
     }
   }, [mapReady, publicMemories, myMemories, myAddress])
@@ -385,6 +401,30 @@ export function MemoriesMapCanvas({ className, style, trackUser = true, onMapRea
         </div>
       ) : null}
       <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
+      {selectedPin && !detailPin ? (
+        <div
+          className="mem-memory-peek-anchor"
+          onClick={() => setSelectedPin(null)}
+          role="presentation"
+        >
+          <MemoryPinPeek
+            pin={selectedPin}
+            myAddress={myAddress}
+            onClose={() => setSelectedPin(null)}
+            onOpenDetail={() => setDetailPin(selectedPin)}
+          />
+        </div>
+      ) : null}
+      {detailPin ? (
+        <MemoryPinFull
+          pin={detailPin}
+          myAddress={myAddress}
+          onClose={() => {
+            setDetailPin(null)
+            setSelectedPin(null)
+          }}
+        />
+      ) : null}
       {showGeoPrompt ? (
         <div
           role="region"
@@ -445,23 +485,4 @@ export function MemoriesMapCanvas({ className, style, trackUser = true, onMapRea
       ) : null}
     </div>
   )
-}
-
-function shortAddr(a: string) {
-  if (!a || a.length < 10) return a
-  return `${a.slice(0, 6)}…${a.slice(-4)}`
-}
-
-function escapeHtml(s: string) {
-  return s
-    .split('&')
-    .join('&amp;')
-    .split('<')
-    .join('&lt;')
-    .split('>')
-    .join('&gt;')
-    .split('"')
-    .join('&quot;')
-    .split("'")
-    .join('&#039;')
 }

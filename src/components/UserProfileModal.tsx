@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { usePrivy, useWallets } from '@privy-io/react-auth'
 import { usePublicClient } from 'wagmi'
 import { formatEther } from 'viem'
 import { pickEthereumSigningWallet } from '@/lib/privyWallet'
 import { walletAvatarBackground } from '@/lib/walletAvatar'
-import type { MemoryPin } from '@/components/MemoriesMapCanvas'
+import type { MemoryPin } from '@/lib/memoryPin'
+import { MemoryPinFull, MemoryPinPeek } from '@/components/MemoryInspect'
 
-const indexerUrl = import.meta.env.VITE_INDEXER_URL ?? 'http://localhost:8787'
+const indexerUrl = (import.meta.env.VITE_INDEXER_URL ?? 'http://localhost:8787').replace(/\/$/, '')
 
 type BalanceMap = Record<string, string>
 
@@ -17,14 +17,16 @@ type Props = {
 }
 
 export function UserProfileModal({ open, onClose }: Props) {
-  const navigate = useNavigate()
   const { user } = usePrivy()
   const { wallets } = useWallets()
   const publicClient = usePublicClient()
   const signingWallet = pickEthereumSigningWallet(wallets)
   const [balances, setBalances] = useState<BalanceMap>({})
   const [myMemories, setMyMemories] = useState<MemoryPin[]>([])
+  const [peekPin, setPeekPin] = useState<MemoryPin | null>(null)
+  const [fullPin, setFullPin] = useState<MemoryPin | null>(null)
   const addr = signingWallet?.address ?? ''
+  const myAddress = addr ? (addr as `0x${string}`) : null
 
   useEffect(() => {
     if (!open || !publicClient || !wallets?.length) return
@@ -47,7 +49,7 @@ export function UserProfileModal({ open, onClose }: Props) {
         if (!cancelled) setBalances({})
       }
     }
-    load()
+    void load()
     return () => {
       cancelled = true
     }
@@ -66,87 +68,120 @@ export function UserProfileModal({ open, onClose }: Props) {
       .catch(() => setMyMemories([]))
   }, [open, addr])
 
+  useEffect(() => {
+    if (!open) {
+      setPeekPin(null)
+      setFullPin(null)
+    }
+  }, [open])
+
   if (!open) return null
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Your profile"
-      className="mem-profile-backdrop"
-      onClick={onClose}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') onClose()
-      }}
-    >
-      <div className="mem-profile-sheet" onClick={(e) => e.stopPropagation()}>
-        <div className="mem-profile-header">
-          <div
-            style={{
-              width: 48,
-              height: 48,
-              borderRadius: '50%',
-              background: addr ? walletAvatarBackground(addr) : '#334155',
-              border: '2px solid rgba(232, 197, 71, 0.35)',
-              flexShrink: 0,
-            }}
-            aria-hidden
-          />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="mem-display" style={{ fontWeight: 600, color: 'var(--mem-text)' }}>
-              Wallet
+    <>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Your profile"
+        className="mem-profile-backdrop"
+        onClick={onClose}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') onClose()
+        }}
+      >
+        <div className="mem-profile-sheet" onClick={(e) => e.stopPropagation()}>
+          <div className="mem-profile-header">
+            <div
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: '50%',
+                background: addr ? walletAvatarBackground(addr) : '#334155',
+                border: '2px solid rgba(232, 197, 71, 0.35)',
+                flexShrink: 0,
+              }}
+              aria-hidden
+            />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="mem-display" style={{ fontWeight: 600, color: 'var(--mem-text)' }}>
+                Wallet
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--mem-text-muted)', wordBreak: 'break-all' }}>
+                {addr ? `${addr.slice(0, 10)}…${addr.slice(-8)}` : '—'}
+              </div>
+              {user?.id ? (
+                <div style={{ fontSize: 11, color: 'var(--mem-text-dim)', marginTop: 4 }}>ID: {user.id}</div>
+              ) : null}
             </div>
-            <div style={{ fontSize: 12, color: 'var(--mem-text-muted)', wordBreak: 'break-all' }}>
-              {addr ? `${addr.slice(0, 10)}…${addr.slice(-8)}` : '—'}
-            </div>
-            {user?.id ? (
-              <div style={{ fontSize: 11, color: 'var(--mem-text-dim)', marginTop: 4 }}>ID: {user.id}</div>
-            ) : null}
+            <button type="button" onClick={onClose} className="mem-btn mem-btn--icon" aria-label="Close profile">
+              ✕
+            </button>
           </div>
-          <button type="button" onClick={onClose} className="mem-btn mem-btn--icon" aria-label="Close profile">
-            ✕
-          </button>
-        </div>
 
-        <div className="mem-profile-body">
-          <h3 className="mem-profile-section-title">Balances (ETH)</h3>
-          <ul className="mem-profile-list">
-            {wallets?.map((w) => (
-              <li key={w.address} className="mem-profile-balance-row">
-                <span style={{ color: 'var(--mem-text-muted)' }}>
-                  {w.address.slice(0, 6)}…{w.address.slice(-4)}
-                </span>
-                <span>{balances[w.address] ?? '…'}</span>
-              </li>
-            ))}
-          </ul>
-
-          <h3 className="mem-profile-section-title">Your memories</h3>
-          {myMemories.length === 0 ? (
-            <p style={{ margin: 0, color: 'var(--mem-text-dim)', fontSize: 14 }}>
-              No memories yet. Mint one from Remember.
-            </p>
-          ) : (
-            <div className="mem-profile-memory-grid">
-              {myMemories.map((m) => (
-                <button
-                  key={`${m.creator}-${m.memoryId}`}
-                  type="button"
-                  onClick={() => {
-                    onClose()
-                    navigate(
-                      `/map?lat=${encodeURIComponent(String(m.latitude))}&lng=${encodeURIComponent(String(m.longitude))}`
-                    )
-                  }}
-                  className="mem-profile-memory-cell"
-                >
-                  <span className="mem-profile-memory-title">{m.title || 'Memory'}</span>
-                </button>
+          <div className="mem-profile-body">
+            <h3 className="mem-profile-section-title">Balances (ETH)</h3>
+            <ul className="mem-profile-list">
+              {wallets?.map((w) => (
+                <li key={w.address} className="mem-profile-balance-row">
+                  <span style={{ color: 'var(--mem-text-muted)' }}>
+                    {w.address.slice(0, 6)}…{w.address.slice(-4)}
+                  </span>
+                  <span>{balances[w.address] ?? '…'}</span>
+                </li>
               ))}
-            </div>
-          )}
+            </ul>
+
+            <h3 className="mem-profile-section-title">Your memories</h3>
+            {myMemories.length === 0 ? (
+              <p style={{ margin: 0, color: 'var(--mem-text-dim)', fontSize: 14 }}>
+                No memories yet. Mint one from the home screen.
+              </p>
+            ) : (
+              <div className="mem-profile-memory-grid">
+                {myMemories.map((m) => (
+                  <button
+                    key={`${m.creator}-${m.memoryId}`}
+                    type="button"
+                    onClick={() => {
+                      setPeekPin(m)
+                      setFullPin(null)
+                    }}
+                    className="mem-profile-memory-cell"
+                  >
+                    {m.imageUrl ? (
+                      <img src={m.imageUrl} alt="" className="mem-profile-memory-thumb" decoding="async" />
+                    ) : null}
+                    <span className="mem-profile-memory-title">{m.title || 'Memory'}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+
+      {peekPin && !fullPin ? (
+        <div className="mem-profile-inspect-layer" role="presentation" onClick={() => setPeekPin(null)}>
+          <div onClick={(e) => e.stopPropagation()}>
+            <MemoryPinPeek
+              pin={peekPin}
+              myAddress={myAddress}
+              onClose={() => setPeekPin(null)}
+              onOpenDetail={() => setFullPin(peekPin)}
+            />
+          </div>
+        </div>
+      ) : null}
+      {fullPin ? (
+        <MemoryPinFull
+          pin={fullPin}
+          myAddress={myAddress}
+          onClose={() => {
+            setFullPin(null)
+            setPeekPin(null)
+          }}
+        />
+      ) : null}
+    </>
   )
 }

@@ -8,6 +8,7 @@ import {
 } from '@/lib/storage'
 import { mintMemory } from '@/lib/mint'
 import { getCurrentPosition } from '@/lib/geo'
+import type { EvmMintSigner } from '@/lib/evmMintBridge'
 
 export type PublishMemoryNftInput = {
   imageBlob: Blob
@@ -15,8 +16,9 @@ export type PublishMemoryNftInput = {
   title: string
   note: string
   authorLabel: string
-  getEthereumProvider: () => Promise<unknown>
   walletAddress: `0x${string}`
+  /** Embedded wallet: Privy `sendTransaction` + sponsorship; external wallet: EIP-1193. */
+  evmSigner: EvmMintSigner
 }
 
 export type PublishMemoryNftResult = {
@@ -24,11 +26,13 @@ export type PublishMemoryNftResult = {
   longitudeE7: number
   title: string
   note: string
+  /** Gateway URL for the watermarked image (for indexer / map thumbnails). */
+  coverImageUrl: string
 }
 
 /** Upload watermarked image + metadata to IPFS, then mint MemoryArchive (geo NFT). */
 export const publishMemoryNft = async (input: PublishMemoryNftInput): Promise<PublishMemoryNftResult> => {
-  const { imageBlob, title, note, authorLabel, getEthereumProvider, walletAddress } = input
+  const { imageBlob, title, note, authorLabel, evmSigner, walletAddress } = input
 
   const [coords, exif] = await Promise.all([getCurrentPosition(), readExif(imageBlob)])
   const watermarked = await watermarkImage(imageBlob)
@@ -53,7 +57,7 @@ export const publishMemoryNft = async (input: PublishMemoryNftInput): Promise<Pu
   }
 
   const metadataUri = await uploadMetadata(metadata)
-  await mintMemory(getEthereumProvider, walletAddress, {
+  await mintMemory(evmSigner, walletAddress, {
     metadataUri,
     title: name,
     note: noteText,
@@ -66,5 +70,6 @@ export const publishMemoryNft = async (input: PublishMemoryNftInput): Promise<Pu
     longitudeE7: Math.round(coords.longitude * 1e7),
     title: name,
     note: noteText,
+    coverImageUrl: ipfsToHttp(imageUri),
   }
 }
