@@ -4,20 +4,40 @@
  * Fallback: NFT.Storage (VITE_NFT_STORAGE_API_KEY).
  */
 
-const NFT_STORAGE_KEY = import.meta.env.VITE_NFT_STORAGE_API_KEY
-/** Legacy Pinata pair from the “API Keys” screen (not the long JWT-only key). */
-const PINATA_API_KEY = import.meta.env.VITE_PINATA_API_KEY?.trim()
-const PINATA_SECRET = import.meta.env.VITE_PINATA_SECRET?.trim()
-/** New Pinata keys are often a single JWT — use Bearer auth (see https://docs.pinata.cloud). */
-const PINATA_JWT = import.meta.env.VITE_PINATA_JWT?.trim()
+/** Trim + strip accidental wrapping quotes from Vercel / shell pastes */
+const normalizeSecret = (v: string | undefined): string | undefined => {
+  const t = v?.trim()
+  if (!t) return undefined
+  if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
+    return t.slice(1, -1).trim() || undefined
+  }
+  return t
+}
+
+const NFT_STORAGE_KEY = normalizeSecret(import.meta.env.VITE_NFT_STORAGE_API_KEY)
+
+/**
+ * Legacy key pair: short api key + secret.
+ * Keys that look like JWTs belong in Bearer uploads API only — never send them as pinata_api_key.
+ */
+const PINATA_API_KEY = normalizeSecret(import.meta.env.VITE_PINATA_API_KEY)
+const PINATA_SECRET = normalizeSecret(import.meta.env.VITE_PINATA_SECRET)
+const PINATA_JWT_EXPLICIT = normalizeSecret(import.meta.env.VITE_PINATA_JWT)
+
+const looksLikePinataJwt = (s: string) => s.startsWith('eyJ') && s.includes('.')
+
+/** Effective Bearer token: dedicated env OR JWT mistakenly stored in API key slot */
+const PINATA_JWT = PINATA_JWT_EXPLICIT ?? (PINATA_API_KEY && looksLikePinataJwt(PINATA_API_KEY) ? PINATA_API_KEY : undefined)
 
 const pinataJwtConfigured = Boolean(PINATA_JWT)
-const pinataLegacyConfigured = Boolean(PINATA_API_KEY && PINATA_SECRET)
+const pinataLegacyConfigured = Boolean(
+  PINATA_API_KEY && PINATA_SECRET && !looksLikePinataJwt(PINATA_API_KEY)
+)
 const pinataConfigured = pinataJwtConfigured || pinataLegacyConfigured
 
 /** True when Pinata or NFT.Storage is configured at build time (Vite inlines env). */
 export function isStorageConfigured(): boolean {
-  return pinataConfigured || Boolean(NFT_STORAGE_KEY?.trim())
+  return pinataConfigured || Boolean(NFT_STORAGE_KEY)
 }
 
 /** Legacy pinning host only — many dashboard JWTs are not valid for these routes. */
@@ -31,7 +51,12 @@ function pinataLegacyHeaders(contentTypeJson: boolean): HeadersInit {
 }
 
 function pinataBearerHeaders(): HeadersInit {
-  return { Authorization: `Bearer ${PINATA_JWT}` }
+  return { Authorization: `Bearer ${PINATA_JWT!}` }
+}
+
+function hintInvalidPinataKeys(responseBody: string): string {
+  if (!responseBody.includes('INVALID_API_KEYS')) return responseBody
+  return `${responseBody} — Pinata: use a full JWT in VITE_PINATA_JWT (from app.pinata.cloud → API Keys; enable file upload). Remove wrong VITE_PINATA_API_KEY / VITE_PINATA_SECRET or redeploy if the bundle still uses legacy keys. If you pasted the JWT into API key, leave VITE_PINATA_JWT set or rely on eyJ… detection after redeploy.`
 }
 
 function parsePinataV3FileResponse(data: unknown): string {
@@ -53,7 +78,7 @@ async function pinataUploadFileV3(blob: Blob, filename: string): Promise<string>
   })
   if (!res.ok) {
     const t = await res.text()
-    throw new Error(t || `Pinata upload failed ${res.status}`)
+    throw new Error(hintInvalidPinataKeys(t) || `Pinata upload failed ${res.status}`)
   }
   const json: unknown = await res.json()
   const cid = parsePinataV3FileResponse(json)
@@ -95,7 +120,7 @@ export async function uploadImage(blob: Blob): Promise<string> {
     })
     if (!res.ok) {
       const t = await res.text()
-      throw new Error(t || `Pinata upload failed ${res.status}`)
+      throw new Error(hintInvalidPinataKeys(t) || `Pinata upload failed ${res.status}`)
     }
     const data = await res.json()
     const cid = data.IpfsHash
@@ -114,7 +139,7 @@ export async function uploadImage(blob: Blob): Promise<string> {
   form.append('file', blob, 'memory.jpg')
   const res = await fetch('https://api.nft.storage/upload', {
     method: 'POST',
-    headers: { Authorization: `Bearer ${NFT_STORAGE_KEY.trim()}` },
+    headers: { Authorization: `Bearer ${NFT_STORAGE_KEY}` },
     body: form,
   })
   if (!res.ok) {
@@ -147,7 +172,7 @@ export async function uploadMetadata(metadata: MemoryMetadata): Promise<string> 
     })
     if (!res.ok) {
       const t = await res.text()
-      throw new Error(t || `Pinata metadata upload failed ${res.status}`)
+      throw new Error(hintInvalidPinataKeys(t) || `Pinata metadata upload failed ${res.status}`)
     }
     const data = await res.json()
     const cid = data.IpfsHash
@@ -167,7 +192,7 @@ export async function uploadMetadata(metadata: MemoryMetadata): Promise<string> 
   form.append('file', blob, 'metadata.json')
   const res = await fetch('https://api.nft.storage/upload', {
     method: 'POST',
-    headers: { Authorization: `Bearer ${NFT_STORAGE_KEY.trim()}` },
+    headers: { Authorization: `Bearer ${NFT_STORAGE_KEY}` },
     body: form,
   })
   if (!res.ok) {

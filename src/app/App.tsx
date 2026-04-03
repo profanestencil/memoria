@@ -37,10 +37,8 @@ export function App() {
       appId={privyAppId}
       config={{
         appearance: {
-          /**
-           * Rainbow / MetaMask + WalletConnect for mobile browsers without injected provider.
-           */
-          walletList: ['rainbow', 'metamask', 'wallet_connect'],
+          /** Rainbow first (direct app open on mobile); MetaMask. No WalletConnect as default entry. */
+          walletList: ['rainbow', 'metamask'],
         },
         embeddedWallets: {
           createOnLogin: 'users-without-wallets',

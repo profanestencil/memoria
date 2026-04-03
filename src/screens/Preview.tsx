@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { isStorageConfigured } from '@/lib/storage'
 import { publishMemoryNft } from '@/lib/publishMemoryNft'
 import { mintMemoryRegistry } from '@/lib/mintMemoryRegistry'
-import { pickEthereumSigningWallet } from '@/lib/privyWallet'
+import { connectRainbowWallet, pickEthereumSigningWallet } from '@/lib/privyWallet'
 import { WalletProfileButton } from '@/components/WalletProfileButton'
 
 const memoryRegistryConfigured = Boolean(import.meta.env.VITE_MEMORY_REGISTRY_CONTRACT_ADDRESS)
@@ -15,8 +15,8 @@ export function Preview() {
   const navigate = useNavigate()
   const location = useLocation()
   const state = (location.state ?? {}) as LocationState
-  const { ready, authenticated, login, user } = usePrivy()
-  const { wallets } = useWallets()
+  const { ready, authenticated, login, user, connectWallet } = usePrivy()
+  const { wallets, ready: walletsReady } = useWallets()
   const [publishing, setPublishing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [title, setTitle] = useState('')
@@ -54,8 +54,12 @@ export function Preview() {
       login()
       return
     }
+    if (!walletsReady) {
+      setError('Wallet is still loading. Wait a moment and tap Publish again.')
+      return
+    }
     if (!signingWallet?.address || !signingWallet.getEthereumProvider) {
-      setError('Wallet not ready')
+      connectRainbowWallet(connectWallet)
       return
     }
     setError(null)
@@ -187,7 +191,7 @@ export function Preview() {
         <button
           type="button"
           onClick={handlePublish}
-          disabled={!ready || publishing || !storageReady}
+          disabled={!ready || publishing || !storageReady || (authenticated && !walletsReady)}
           className="mem-btn mem-btn--primary"
           style={{ flex: '2 1 180px' }}
         >
@@ -195,9 +199,13 @@ export function Preview() {
             ? 'Set storage keys'
             : !authenticated
               ? 'Sign in to publish'
-              : publishing
-                ? 'Publishing…'
-                : 'Publish'}
+              : !walletsReady
+                ? 'Preparing wallet…'
+                : publishing
+                  ? 'Publishing…'
+                  : !signingWallet?.getEthereumProvider
+                    ? 'Connect wallet to publish'
+                    : 'Publish'}
         </button>
       </div>
     </div>

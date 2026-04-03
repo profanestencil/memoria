@@ -247,17 +247,35 @@ export function Camera() {
           position: 'absolute',
           top: 16,
           left: 16,
+          right: 16,
           display: 'flex',
           alignItems: 'center',
-          gap: 10,
+          justifyContent: 'space-between',
+          gap: 12,
           color: 'white',
           zIndex: 5,
+          pointerEvents: 'none',
         }}
       >
-        <WalletProfileButton />
-        <span className="mem-brand" style={{ fontSize: '1.15rem', textShadow: '0 2px 12px rgba(0,0,0,0.5)' }}>
-          Memoria
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, pointerEvents: 'auto' }}>
+          <WalletProfileButton />
+          <span className="mem-brand" style={{ fontSize: '1.15rem', textShadow: '0 2px 12px rgba(0,0,0,0.5)' }}>
+            Memoria
+          </span>
+        </div>
+        <button
+          type="button"
+          className="mem-btn mem-btn--ghost"
+          onClick={() => navigate('/')}
+          aria-label="Back to home"
+          style={{
+            pointerEvents: 'auto',
+            flexShrink: 0,
+            boxShadow: '0 2px 16px rgba(0,0,0,0.35)',
+          }}
+        >
+          Home
+        </button>
       </div>
 
       <button

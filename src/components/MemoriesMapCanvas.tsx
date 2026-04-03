@@ -6,7 +6,18 @@ import { pickEthereumSigningWallet } from '@/lib/privyWallet'
 import { getMapboxClientTokenState } from '@/lib/mapboxClientToken'
 
 const mapboxTokenState = getMapboxClientTokenState()
-const indexerUrl = import.meta.env.VITE_INDEXER_URL ?? 'http://localhost:8787'
+const indexerUrl = (import.meta.env.VITE_INDEXER_URL ?? 'http://localhost:8787').replace(/\/$/, '')
+
+const indexerUrlLooksBrokenInProd = (): string | null => {
+  if (!import.meta.env.PROD) return null
+  if (indexerUrl.includes('localhost') || indexerUrl.includes('127.0.0.1')) {
+    return 'Map pins need VITE_INDEXER_URL pointing at your deployed indexer, not localhost (set in Vercel and redeploy).'
+  }
+  if (indexerUrl.startsWith('http:')) {
+    return 'Indexer URL should use https:// in production (browser blocks http:// API calls from https pages).'
+  }
+  return null
+}
 
 export type MemoryPin = {
   memoryId: string
@@ -50,6 +61,9 @@ export function MemoriesMapCanvas({ className, style, trackUser = true, onMapRea
   const [geoUi, setGeoUi] = useState<GeoUi>('off')
   const [myMemories, setMyMemories] = useState<MemoryPin[]>([])
   const [publicMemories, setPublicMemories] = useState<MemoryPin[]>([])
+  const [indexerFetchHint, setIndexerFetchHint] = useState<string | null>(null)
+  const indexerConfigHint = indexerUrlLooksBrokenInProd()
+  const indexerBanner = indexerConfigHint ?? indexerFetchHint
   const { wallets } = useWallets()
   const signingWallet = pickEthereumSigningWallet(wallets)
   const myAddress = useMemo(
@@ -188,10 +202,31 @@ export function MemoriesMapCanvas({ className, style, trackUser = true, onMapRea
     }
     const u = new URL('/memories', indexerUrl)
     u.searchParams.set('user', myAddress)
+    let cancelled = false
     fetch(u.toString())
-      .then((r) => r.json())
-      .then((j: { memories?: MemoryPin[] }) => setMyMemories(j.memories ?? []))
-      .catch(() => setMyMemories([]))
+      .then(async (r) => {
+        if (!r.ok) {
+          if (!cancelled) {
+            setIndexerFetchHint(`Indexer error ${r.status} loading your pins (${u.origin}).`)
+          }
+          return { memories: [] as MemoryPin[] }
+        }
+        return r.json() as Promise<{ memories?: MemoryPin[] }>
+      })
+      .then((j) => {
+        if (!cancelled) setMyMemories(j.memories ?? [])
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setMyMemories([])
+          setIndexerFetchHint(
+            `Could not reach indexer at ${indexerUrl}. Is it running with CORS and a public URL?`
+          )
+        }
+      })
+    return () => {
+      cancelled = true
+    }
   }, [myAddress])
 
   useEffect(() => {
@@ -207,17 +242,32 @@ export function MemoriesMapCanvas({ className, style, trackUser = true, onMapRea
       u.searchParams.set('lngMin', String(b?.getWest?.() ?? -180))
       u.searchParams.set('lngMax', String(b?.getEast?.() ?? 180))
       try {
-        const j: { memories?: MemoryPin[] } = await fetch(u.toString()).then((r) => r.json())
+        const res = await fetch(u.toString())
+        if (!res.ok) {
+          setIndexerFetchHint(`Indexer error ${res.status} for public pins (${u.origin}).`)
+          setPublicMemories([])
+          return
+        }
+        const j: { memories?: MemoryPin[] } = await res.json()
         setPublicMemories(j.memories ?? [])
+        setIndexerFetchHint(null)
       } catch {
         setPublicMemories([])
+        setIndexerFetchHint(
+          `Could not reach indexer at ${indexerUrl}. Is it running with CORS and a public URL?`
+        )
       }
     }
 
     loadPublicInView()
+    const onIdle = () => {
+      void loadPublicInView()
+    }
     map.on('moveend', loadPublicInView)
+    map.once('idle', onIdle)
     return () => {
       map.off('moveend', loadPublicInView)
+      map.off('idle', onIdle)
     }
   }, [mapReady, indexerUrl])
 
@@ -311,6 +361,29 @@ export function MemoriesMapCanvas({ className, style, trackUser = true, onMapRea
         ...style,
       }}
     >
+      {indexerBanner ? (
+        <div
+          role="status"
+          style={{
+            position: 'absolute',
+            left: 12,
+            right: 12,
+            top: 12,
+            zIndex: 6,
+            maxWidth: 480,
+            margin: '0 auto',
+            padding: '12px 14px',
+            borderRadius: 10,
+            background: 'rgba(80, 40, 20, 0.92)',
+            border: '1px solid rgba(255,200,120,0.35)',
+            color: '#fff5e8',
+            fontSize: 13,
+            lineHeight: 1.45,
+          }}
+        >
+          {indexerBanner}
+        </div>
+      ) : null}
       <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
       {showGeoPrompt ? (
         <div
