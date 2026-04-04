@@ -90,7 +90,13 @@ Photo and location-based memory archive: capture a photo, mint it as an NFT on B
 
    After publish, the app calls `POST /memories/:memoryId/image` with the cover image URL (creator address must match the on-chain owner) so map pins and the profile “memories” grid can show thumbnails.
 
-   **Production deploy:** This process must stay running (not Vercel static/serverless as-is). Use `indexer/Dockerfile` on Fly.io, Railway, Render, a VPS, etc. Set `MEMORY_REGISTRY_ADDRESS`, `CHAIN` (`base` or `base-sepolia`), optional `BASE_RPC_URL`, and `PORT` if the platform assigns one. Persist state with a volume: the image uses `DATA_DIR=/data` (see `indexer/src/store.js`).
+   **Production on Vercel (same project as the SPA):** The repo includes serverless routes under `api/` plus `vercel.json` rewrites so the app can keep using `VITE_INDEXER_URL=https://your-deployment.vercel.app` (no `/api` prefix; `/memories` and `/health` are rewritten). Do this in the Vercel dashboard:
+
+   1. **Storage → Create Redis** (Upstash). That injects `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` (older KV stores may still expose `KV_REST_API_URL` / `KV_REST_API_TOKEN`; both work).
+   2. **Environment variables:** `MEMORY_REGISTRY_ADDRESS`, `CHAIN` (`base` or `base-sepolia`), optional `BASE_RPC_URL`, and **`CRON_SECRET`** (any random string). Vercel Cron calls `/api/cron/sync` every minute and sends `Authorization: Bearer <CRON_SECRET>` when `CRON_SECRET` is set.
+   3. Redeploy. Optional: open `https://your-app.vercel.app/api/cron/sync` once with the Bearer header to seed `lastBlock` immediately (or wait for the first cron tick).
+
+   **Production elsewhere (long-running Node):** Use `indexer/Dockerfile` on Fly.io, Railway, Render, a VPS, etc. Set `MEMORY_REGISTRY_ADDRESS`, `CHAIN`, optional `BASE_RPC_URL`, and `PORT`. Mount a volume at `/data` (`DATA_DIR=/data`, see `indexer/src/store.js`).
 
 5. **Run the app**
 
