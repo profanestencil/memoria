@@ -8,6 +8,18 @@ import type { MemoryPin } from '@/lib/memoryPin'
 import { MemoryPinFull, MemoryPinPeek } from '@/components/MemoryInspect'
 
 const indexerUrl = (import.meta.env.VITE_INDEXER_URL ?? 'http://localhost:8787').replace(/\/$/, '')
+const OPTIMISTIC_PINS_KEY = 'memoria:optimisticPins:v1'
+
+const loadOptimisticPins = (): MemoryPin[] => {
+  try {
+    const raw = sessionStorage.getItem(OPTIMISTIC_PINS_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? (parsed as MemoryPin[]) : []
+  } catch {
+    return []
+  }
+}
 
 type BalanceMap = Record<string, string>
 
@@ -60,12 +72,21 @@ export function UserProfileModal({ open, onClose }: Props) {
       setMyMemories([])
       return
     }
+    const optimistic = loadOptimisticPins().filter((p) => p.creator.toLowerCase() === addr.toLowerCase())
     const u = new URL('/memories', indexerUrl)
     u.searchParams.set('user', addr as `0x${string}`)
     fetch(u.toString())
-      .then((r) => r.json())
-      .then((j: { memories?: MemoryPin[] }) => setMyMemories(j.memories ?? []))
-      .catch(() => setMyMemories([]))
+      .then(async (r) => {
+        if (!r.ok) return { memories: [] as MemoryPin[] }
+        const j = (await r.json()) as { memories?: MemoryPin[] }
+        return { memories: j.memories ?? [] }
+      })
+      .then((j) => {
+        const seen = new Set(j.memories.map((p) => `${p.creator.toLowerCase()}-${p.memoryId}`))
+        const merged = [...optimistic.filter((p) => !seen.has(`${p.creator.toLowerCase()}-${p.memoryId}`)), ...j.memories]
+        setMyMemories(merged)
+      })
+      .catch(() => setMyMemories(optimistic))
   }, [open, addr])
 
   useEffect(() => {

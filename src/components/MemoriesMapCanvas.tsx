@@ -9,6 +9,18 @@ import { MemoryPinFull, MemoryPinPeek } from '@/components/MemoryInspect'
 
 const mapboxTokenState = getMapboxClientTokenState()
 const indexerUrl = (import.meta.env.VITE_INDEXER_URL ?? 'http://localhost:8787').replace(/\/$/, '')
+const OPTIMISTIC_PINS_KEY = 'memoria:optimisticPins:v1'
+
+const loadOptimisticPins = (): MemoryPin[] => {
+  try {
+    const raw = sessionStorage.getItem(OPTIMISTIC_PINS_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? (parsed as MemoryPin[]) : []
+  } catch {
+    return []
+  }
+}
 
 const indexerUrlLooksBrokenInProd = (): string | null => {
   if (!import.meta.env.PROD) return null
@@ -99,6 +111,32 @@ export function MemoriesMapCanvas({
   useEffect(() => {
     void fetchMyMemories()
   }, [fetchMyMemories, refreshEpoch])
+
+  useEffect(() => {
+    if (!mapReady) return
+    const pins = loadOptimisticPins()
+    if (!pins.length) return
+
+    if (myAddress) {
+      const mine = pins.filter((p) => p.creator.toLowerCase() === myAddress.toLowerCase())
+      if (mine.length) {
+        setMyMemories((prev) => {
+          const seen = new Set(prev.map((p) => `${p.creator.toLowerCase()}-${p.memoryId}`))
+          const merged = [...mine.filter((p) => !seen.has(`${p.creator.toLowerCase()}-${p.memoryId}`)), ...prev]
+          return merged
+        })
+      }
+    }
+
+    const pub = pins.filter((p) => p.isPublic)
+    if (pub.length) {
+      setPublicMemories((prev) => {
+        const seen = new Set(prev.map((p) => `${p.creator.toLowerCase()}-${p.memoryId}`))
+        const merged = [...pub.filter((p) => !seen.has(`${p.creator.toLowerCase()}-${p.memoryId}`)), ...prev]
+        return merged
+      })
+    }
+  }, [mapReady, myAddress])
 
   const applyUserPosition = useCallback((lng: number, lat: number, animateCenter: boolean) => {
     const map = mapRef.current

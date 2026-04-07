@@ -9,10 +9,32 @@ import { buildMapboxStaticPreviewUrl } from '@/lib/mapboxStatic'
 import { getMapboxClientTokenState } from '@/lib/mapboxClientToken'
 import { connectRainbowWallet, isPrivyEmbeddedWallet, pickEthereumSigningWallet } from '@/lib/privyWallet'
 import { WalletProfileButton } from '@/components/WalletProfileButton'
+import type { MemoryPin } from '@/lib/memoryPin'
 
 const memoryRegistryConfigured = Boolean(import.meta.env.VITE_MEMORY_REGISTRY_CONTRACT_ADDRESS)
 
 type LocationState = { imageBlob?: Blob; imageUrl?: string }
+
+const OPTIMISTIC_PINS_KEY = 'memoria:optimisticPins:v1'
+
+const loadOptimisticPins = (): MemoryPin[] => {
+  try {
+    const raw = sessionStorage.getItem(OPTIMISTIC_PINS_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? (parsed as MemoryPin[]) : []
+  } catch {
+    return []
+  }
+}
+
+const saveOptimisticPins = (pins: MemoryPin[]) => {
+  try {
+    sessionStorage.setItem(OPTIMISTIC_PINS_KEY, JSON.stringify(pins.slice(-20)))
+  } catch {
+    // ignore storage failures (private mode, quota)
+  }
+}
 
 export function Preview() {
   const navigate = useNavigate()
@@ -145,6 +167,22 @@ export function Preview() {
             ),
         })
         if (reg.memoryId != null) {
+          const optimistic: MemoryPin = {
+            memoryId: reg.memoryId.toString(),
+            creator: walletAddress,
+            timestamp: Math.floor(Date.now() / 1000),
+            latitude: published.latitudeE7 / 1e7,
+            longitude: published.longitudeE7 / 1e7,
+            isPublic,
+            title: published.title,
+            note: published.note,
+            imageUrl: published.coverImageUrl,
+          }
+          const existing = loadOptimisticPins()
+          const key = `${optimistic.creator.toLowerCase()}-${optimistic.memoryId}`
+          const merged = [optimistic, ...existing.filter((p) => `${p.creator.toLowerCase()}-${p.memoryId}` !== key)]
+          saveOptimisticPins(merged)
+
           setMintingOverlay((prev) =>
             prev
               ? { ...prev, title: 'Indexing pin…', detail: 'Attaching cover image so the map can show thumbnails.' }
