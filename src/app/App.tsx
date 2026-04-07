@@ -44,7 +44,7 @@ export function App() {
           createOnLogin: 'users-without-wallets',
         },
         defaultChain: chain,
-        supportedChains: [base, baseSepolia],
+        supportedChains: [chain],
       }}
     >
       <AppProvider>

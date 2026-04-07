@@ -29,7 +29,7 @@ Photo and location-based memory archive: capture a photo, mint it as an NFT on B
 
    - `VITE_PRIVY_APP_ID` – [Privy dashboard](https://dashboard.privy.io)
    - `VITE_MAPBOX_ACCESS_TOKEN` – [Mapbox](https://account.mapbox.com) **public** default token (`pk.…`), not a secret token (`sk.…`)
-   - `VITE_CHAIN` – `base` or `base-sepolia` (must match the network where your contracts are deployed)
+   - `VITE_CHAIN` – `base` (mainnet, default in `.env.example`) or `base-sepolia` (testnet). **Vercel:** set `VITE_CHAIN=base` for mainnet and redeploy so the build picks it up; the serverless indexer uses the same network via `CHAIN=base`.
    - `VITE_BASE_RPC_URL` – e.g. `https://mainnet.base.org`
    - `VITE_BASE_SEPOLIA_RPC_URL` – e.g. `https://sepolia.base.org` (when using testnet)
    - `VITE_MEMORY_ARCHIVE_CONTRACT_ADDRESS` – **MemoryArchive** (Camera → Preview publish flow and on-chain log reads)
@@ -93,7 +93,7 @@ Photo and location-based memory archive: capture a photo, mint it as an NFT on B
    **Production on Vercel (same project as the SPA):** The repo includes serverless routes under `api/` plus `vercel.json` rewrites so the app can keep using `VITE_INDEXER_URL=https://your-deployment.vercel.app` (no `/api` prefix; `/memories` and `/health` are rewritten). Do this in the Vercel dashboard:
 
    1. **Storage → Create Redis** (Upstash). That injects `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` (older KV stores may still expose `KV_REST_API_URL` / `KV_REST_API_TOKEN`; both work).
-   2. **Environment variables:** `MEMORY_REGISTRY_ADDRESS`, `CHAIN` (`base` or `base-sepolia`), optional `BASE_RPC_URL`, and **`CRON_SECRET`** (any random string). Vercel Cron calls `/api/cron/sync` every minute and sends `Authorization: Bearer <CRON_SECRET>` when `CRON_SECRET` is set.
+   2. **Environment variables:** `MEMORY_REGISTRY_ADDRESS`, **`CHAIN=base`** for mainnet (or `base-sepolia` for testnet), optional `BASE_RPC_URL`, and **`CRON_SECRET`** (any random string). Match the frontend: **`VITE_CHAIN`** must be the same network (baked in at build time). Vercel Cron calls `/api/cron/sync` every minute and sends `Authorization: Bearer <CRON_SECRET>` when `CRON_SECRET` is set.
    3. Redeploy. Optional: open `https://your-app.vercel.app/api/cron/sync` once with the Bearer header to seed `lastBlock` immediately (or wait for the first cron tick).
 
    **Production elsewhere (long-running Node):** Use `indexer/Dockerfile` on Fly.io, Railway, Render, a VPS, etc. Set `MEMORY_REGISTRY_ADDRESS`, `CHAIN`, optional `BASE_RPC_URL`, and `PORT`. Mount a volume at `/data` (`DATA_DIR=/data`, see `indexer/src/store.js`).
