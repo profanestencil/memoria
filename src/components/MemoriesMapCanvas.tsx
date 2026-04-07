@@ -228,7 +228,7 @@ export function MemoriesMapCanvas({
     const map = mapRef.current
     if (!map || !mapReady) return
 
-    async function loadPublicInView() {
+    const loadPublicInView = async () => {
       if (!mapRef.current) return
       const b = mapRef.current.getBounds()
       const u = new URL('/memories', indexerUrl)
@@ -255,14 +255,12 @@ export function MemoriesMapCanvas({
     }
 
     void loadPublicInView()
-    const onIdle = () => {
-      void loadPublicInView()
-    }
+    const handleIdle = () => void loadPublicInView()
     map.on('moveend', loadPublicInView)
-    map.once('idle', onIdle)
+    map.on('idle', handleIdle)
     return () => {
       map.off('moveend', loadPublicInView)
-      map.off('idle', onIdle)
+      map.off('idle', handleIdle)
     }
   }, [mapReady, indexerUrl, refreshEpoch])
 

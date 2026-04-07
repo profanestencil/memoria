@@ -1,8 +1,14 @@
 import { createPublicClient, http } from 'viem'
 import { base, baseSepolia } from 'viem/chains'
 
+/** Prefer CHAIN (server); fall back to VITE_CHAIN so Vercel can use one network var with the SPA build. */
+const resolveChainName = () => {
+  const raw = (process.env.CHAIN ?? process.env.VITE_CHAIN ?? '').toString().trim().toLowerCase()
+  return raw === 'base-sepolia' ? 'base-sepolia' : 'base'
+}
+
 export const getIndexerEnv = () => {
-  const chainName = process.env.CHAIN === 'base-sepolia' ? 'base-sepolia' : 'base'
+  const chainName = resolveChainName()
   const chain = chainName === 'base-sepolia' ? baseSepolia : base
   const rpcUrl =
     process.env.BASE_RPC_URL ??

@@ -3,7 +3,12 @@ import { base, baseSepolia } from 'viem/chains'
 import { MEMORY_REGISTRY_ABI } from './abi.js'
 import { loadStore, saveStore } from './store.js'
 
-const chainName = process.env.CHAIN === 'base-sepolia' ? 'base-sepolia' : 'base'
+const resolveChainName = () => {
+  const raw = (process.env.CHAIN ?? process.env.VITE_CHAIN ?? '').toString().trim().toLowerCase()
+  return raw === 'base-sepolia' ? 'base-sepolia' : 'base'
+}
+
+const chainName = resolveChainName()
 const chain = chainName === 'base-sepolia' ? baseSepolia : base
 const rpcUrl =
   process.env.BASE_RPC_URL ??

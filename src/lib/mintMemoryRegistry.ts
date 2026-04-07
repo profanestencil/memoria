@@ -53,6 +53,10 @@ export async function mintMemoryRegistry(
     latitudeE7: number
     longitudeE7: number
     isPublic: boolean
+  },
+  options?: {
+    /** Fires as soon as the tx hash is available (before waiting for confirmations). */
+    onHash?: (hash: `0x${string}`) => void
   }
 ): Promise<{ hash: `0x${string}`; memoryId?: bigint }> {
   if (!contractAddress) {
@@ -102,6 +106,7 @@ export async function mintMemoryRegistry(
     })
   }
 
+  options?.onHash?.(hash)
   const memoryId = await parseMemoryIdFromReceipt(hash)
   return { hash, memoryId }
 }

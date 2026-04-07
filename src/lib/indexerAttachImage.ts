@@ -2,6 +2,14 @@ const indexerUrl = (import.meta.env.VITE_INDEXER_URL ?? 'http://localhost:8787')
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+/** 4xx client / auth failures — do not retry (indexer will not succeed on backoff). */
+class IndexerClientError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'IndexerClientError'
+  }
+}
+
 /** Attach cover image to a registry memory (creator must match on-chain). Retries while indexer catches up. */
 export const attachMemoryCoverImage = async (input: {
   memoryId: string
@@ -22,8 +30,11 @@ export const attachMemoryCoverImage = async (input: {
       if (res.ok) return
       const j = (await res.json().catch(() => ({}))) as { error?: string }
       lastErr = j.error ?? `HTTP ${res.status}`
-      if (res.status === 403 || res.status === 400) throw new Error(lastErr)
+      if (res.status === 400 || res.status === 403) {
+        throw new IndexerClientError(lastErr)
+      }
     } catch (e) {
+      if (e instanceof IndexerClientError) throw e
       lastErr = e instanceof Error ? e.message : 'fetch failed'
       if (attempt === maxAttempts - 1) throw e instanceof Error ? e : new Error(lastErr)
     }

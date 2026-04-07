@@ -21,9 +21,18 @@ export function Preview() {
   const { ready, authenticated, login, user, connectWallet, sendTransaction } = usePrivy()
   const { wallets, ready: walletsReady } = useWallets()
   const [publishing, setPublishing] = useState(false)
+  const [mintingOverlay, setMintingOverlay] = useState<
+    | null
+    | {
+        title: string
+        detail?: string
+        txHash?: `0x${string}`
+      }
+  >(null)
   const [error, setError] = useState<string | null>(null)
   const [title, setTitle] = useState('')
   const [note, setNote] = useState('')
+  const [isPublic, setIsPublic] = useState(true)
   const [previewCoords, setPreviewCoords] = useState<{ lat: number; lng: number } | null>(null)
 
   const imageUrl = state.imageUrl
@@ -83,6 +92,7 @@ export function Preview() {
     }
     setError(null)
     setPublishing(true)
+    setMintingOverlay(null)
     try {
       const blob = imageBlob!
       const author = user?.id ?? signingWallet.address
@@ -108,14 +118,38 @@ export function Preview() {
         evmSigner,
       })
       if (memoryRegistryConfigured) {
+        setMintingOverlay({
+          title: 'Minting onchain — please be patient…',
+          detail: 'Waiting for confirmations. Your pin will appear on the map when minting is complete.',
+        })
         const reg = await mintMemoryRegistry(evmSigner, walletAddress, {
           title: published.title,
           note: published.note,
           latitudeE7: published.latitudeE7,
           longitudeE7: published.longitudeE7,
-          isPublic: true,
+          isPublic,
+        }, {
+          onHash: (txHash) =>
+            setMintingOverlay((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    txHash,
+                    detail: 'Transaction sent. Waiting for confirmations…',
+                  }
+                : {
+                    title: 'Minting onchain — please be patient…',
+                    detail: 'Transaction sent. Waiting for confirmations…',
+                    txHash,
+                  }
+            ),
         })
         if (reg.memoryId != null) {
+          setMintingOverlay((prev) =>
+            prev
+              ? { ...prev, title: 'Indexing pin…', detail: 'Attaching cover image so the map can show thumbnails.' }
+              : { title: 'Indexing pin…', detail: 'Attaching cover image so the map can show thumbnails.' }
+          )
           try {
             await attachMemoryCoverImage({
               memoryId: reg.memoryId.toString(),
@@ -127,12 +161,17 @@ export function Preview() {
           }
         }
       }
-      navigate('/map', { state: { mapRefreshEpoch: Date.now() } })
+      setMintingOverlay((prev) => (prev ? { ...prev, title: 'Done', detail: 'Opening the map…' } : prev))
+      const lat = published.latitudeE7 / 1e7
+      const lng = published.longitudeE7 / 1e7
+      const nextUrl = `/map?lat=${encodeURIComponent(String(lat))}&lng=${encodeURIComponent(String(lng))}`
+      navigate(nextUrl, { state: { mapRefreshEpoch: Date.now() } })
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Publish failed'
       setError(msg.includes('denied') || msg.includes('timeout') ? 'Location required. Enable location and try again.' : msg)
     } finally {
       setPublishing(false)
+      setMintingOverlay(null)
     }
   }
 
@@ -152,6 +191,24 @@ export function Preview() {
 
   return (
     <div className="mem-preview-page">
+      {mintingOverlay ? (
+        <div className="mem-mint-overlay" role="status" aria-live="polite" aria-label="Minting in progress">
+          <div className="mem-mint-overlay__card">
+            <div className="mem-spinner" aria-hidden="true" />
+            <div style={{ display: 'grid', gap: 6 }}>
+              <div className="mem-mint-overlay__title">{mintingOverlay.title}</div>
+              {mintingOverlay.detail ? (
+                <div className="mem-mint-overlay__detail">{mintingOverlay.detail}</div>
+              ) : null}
+              {mintingOverlay.txHash ? (
+                <div className="mem-mint-overlay__hash">
+                  <span style={{ opacity: 0.8 }}>Tx</span> <code>{mintingOverlay.txHash}</code>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
       <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 10 }}>
         <WalletProfileButton />
       </div>
@@ -218,6 +275,38 @@ export function Preview() {
               disabled={publishing}
             />
           </div>
+          {memoryRegistryConfigured ? (
+            <div>
+              <label className="mem-label" style={{ display: 'block', marginBottom: 8 }}>
+                Visibility
+              </label>
+              <div className="mem-seg" role="group" aria-label="Memory pin visibility">
+                <button
+                  type="button"
+                  className={`mem-seg__btn ${isPublic ? 'mem-seg__btn--active' : ''}`}
+                  onClick={() => setIsPublic(true)}
+                  disabled={publishing}
+                  aria-pressed={isPublic}
+                >
+                  Public
+                </button>
+                <button
+                  type="button"
+                  className={`mem-seg__btn ${!isPublic ? 'mem-seg__btn--active' : ''}`}
+                  onClick={() => setIsPublic(false)}
+                  disabled={publishing}
+                  aria-pressed={!isPublic}
+                >
+                  Private
+                </button>
+              </div>
+              <p className="mem-subtle" style={{ margin: '10px 0 0', lineHeight: 1.5 }}>
+                {isPublic
+                  ? 'Public memories show as pins for everyone.'
+                  : 'Private memories only show as pins for your wallet.'}
+              </p>
+            </div>
+          ) : null}
         </div>
       </div>
       {error ? <p className="mem-error" style={{ padding: '12px 18px', margin: 0, fontSize: 14, background: 'rgba(12,10,8,0.9)' }}>{error}</p> : null}
