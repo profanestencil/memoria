@@ -13,7 +13,8 @@ export const getIndexerEnv = () => {
   const rpcUrl =
     process.env.BASE_RPC_URL ??
     (chainName === 'base-sepolia' ? 'https://sepolia.base.org' : 'https://mainnet.base.org')
-  const contractAddress = process.env.MEMORY_REGISTRY_ADDRESS
+  const contractAddress =
+    process.env.MEMORY_REGISTRY_ADDRESS ?? process.env.VITE_MEMORY_REGISTRY_CONTRACT_ADDRESS
   return { chain, chainName, rpcUrl, contractAddress }
 }
 

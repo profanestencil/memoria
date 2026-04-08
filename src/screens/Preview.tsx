@@ -16,6 +16,7 @@ const memoryRegistryConfigured = Boolean(import.meta.env.VITE_MEMORY_REGISTRY_CO
 type LocationState = { imageBlob?: Blob; imageUrl?: string }
 
 const OPTIMISTIC_PINS_KEY = 'memoria:optimisticPins:v1'
+const indexerBaseUrl = (import.meta.env.VITE_INDEXER_URL ?? 'http://localhost:8787').replace(/\/$/, '')
 
 const loadOptimisticPins = (): MemoryPin[] => {
   try {
@@ -34,6 +35,11 @@ const saveOptimisticPins = (pins: MemoryPin[]) => {
   } catch {
     // ignore storage failures (private mode, quota)
   }
+}
+
+const seedMemoryInIndexer = async (memoryId: string) => {
+  const u = new URL(`/memories/${memoryId}/seed`, indexerBaseUrl)
+  await fetch(u.toString(), { method: 'POST' })
 }
 
 export function Preview() {
@@ -167,6 +173,12 @@ export function Preview() {
             ),
         })
         if (reg.memoryId != null) {
+          try {
+            await seedMemoryInIndexer(reg.memoryId.toString())
+          } catch {
+            // best-effort: public visibility still happens via cron sync
+          }
+
           const optimistic: MemoryPin = {
             memoryId: reg.memoryId.toString(),
             creator: walletAddress,
