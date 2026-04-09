@@ -5,8 +5,8 @@
   },
   "rewrites": [
     { "source": "/health", "destination": "/api/health" },
-    { "source": "/memories/:memoryId/image", "destination": "/api/memories/:memoryId/image" },
-    { "source": "/memories/:memoryId/seed", "destination": "/api/memories/:memoryId/seed" },
+    { "source": "/memories/:memoryId/image", "destination": "/api/memory-image?memoryId=:memoryId" },
+    { "source": "/memories/:memoryId/seed", "destination": "/api/memory-seed?memoryId=:memoryId" },
     { "source": "/memories", "destination": "/api/memories" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
