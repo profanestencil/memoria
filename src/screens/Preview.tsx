@@ -10,37 +10,14 @@ import { getMapboxClientTokenState } from '@/lib/mapboxClientToken'
 import { connectRainbowWallet, isPrivyEmbeddedWallet, pickEthereumSigningWallet } from '@/lib/privyWallet'
 import { WalletProfileButton } from '@/components/WalletProfileButton'
 import type { MemoryPin } from '@/lib/memoryPin'
+import { loadOptimisticPins, saveOptimisticPins } from '@/lib/optimisticPinsStorage'
+import { seedMemoryInIndexer } from '@/lib/indexerSeed'
 
 const memoryRegistryConfigured = Boolean(import.meta.env.VITE_MEMORY_REGISTRY_CONTRACT_ADDRESS)
 
 type LocationState = { imageBlob?: Blob; imageUrl?: string }
 
-const OPTIMISTIC_PINS_KEY = 'memoria:optimisticPins:v1'
 const indexerBaseUrl = (import.meta.env.VITE_INDEXER_URL ?? 'http://localhost:8787').replace(/\/$/, '')
-
-const loadOptimisticPins = (): MemoryPin[] => {
-  try {
-    const raw = sessionStorage.getItem(OPTIMISTIC_PINS_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? (parsed as MemoryPin[]) : []
-  } catch {
-    return []
-  }
-}
-
-const saveOptimisticPins = (pins: MemoryPin[]) => {
-  try {
-    sessionStorage.setItem(OPTIMISTIC_PINS_KEY, JSON.stringify(pins.slice(-20)))
-  } catch {
-    // ignore storage failures (private mode, quota)
-  }
-}
-
-const seedMemoryInIndexer = async (memoryId: string) => {
-  const u = new URL(`/memories/${memoryId}/seed`, indexerBaseUrl)
-  await fetch(u.toString(), { method: 'POST' })
-}
 
 export function Preview() {
   const navigate = useNavigate()
@@ -174,9 +151,20 @@ export function Preview() {
         })
         if (reg.memoryId != null) {
           try {
-            await seedMemoryInIndexer(reg.memoryId.toString())
-          } catch {
-            // best-effort: public visibility still happens via cron sync
+            await seedMemoryInIndexer(reg.memoryId.toString(), indexerBaseUrl)
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : 'indexer seed failed'
+            setMintingOverlay((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    detail: `Pin minted, but saving to the shared map index failed (${msg}). Check VITE_INDEXER_URL / redeploy; cron may still pick it up.`,
+                  }
+                : {
+                    title: 'Indexing warning',
+                    detail: msg,
+                  }
+            )
           }
 
           const optimistic: MemoryPin = {

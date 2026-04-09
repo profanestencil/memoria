@@ -12,7 +12,9 @@ const toLowerAddr = (a) => (typeof a === 'string' ? a.toLowerCase() : '')
 export const runSyncOnce = async () => {
   const { contractAddress } = getIndexerEnv()
   if (!contractAddress) {
-    throw new Error('MEMORY_REGISTRY_ADDRESS is not set')
+    throw new Error(
+      'MEMORY_REGISTRY_ADDRESS or VITE_MEMORY_REGISTRY_CONTRACT_ADDRESS is not set'
+    )
   }
 
   const client = getPublicClient()

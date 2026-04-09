@@ -5,22 +5,11 @@ import { useWallets } from '@privy-io/react-auth'
 import { pickEthereumSigningWallet } from '@/lib/privyWallet'
 import { getMapboxClientTokenState } from '@/lib/mapboxClientToken'
 import type { MemoryPin } from '@/lib/memoryPin'
+import { loadOptimisticPins } from '@/lib/optimisticPinsStorage'
 import { MemoryPinFull, MemoryPinPeek } from '@/components/MemoryInspect'
 
 const mapboxTokenState = getMapboxClientTokenState()
 const indexerUrl = (import.meta.env.VITE_INDEXER_URL ?? 'http://localhost:8787').replace(/\/$/, '')
-const OPTIMISTIC_PINS_KEY = 'memoria:optimisticPins:v1'
-
-const loadOptimisticPins = (): MemoryPin[] => {
-  try {
-    const raw = sessionStorage.getItem(OPTIMISTIC_PINS_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? (parsed as MemoryPin[]) : []
-  } catch {
-    return []
-  }
-}
 
 const indexerUrlLooksBrokenInProd = (): string | null => {
   if (!import.meta.env.PROD) return null

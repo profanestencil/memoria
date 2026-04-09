@@ -37,7 +37,8 @@ async function main() {
   app.use(express.json({ limit: '32kb' }))
 
   const idx = await startIndexer()
-  const contractAddress = process.env.MEMORY_REGISTRY_ADDRESS
+  const contractAddress =
+    process.env.MEMORY_REGISTRY_ADDRESS ?? process.env.VITE_MEMORY_REGISTRY_CONTRACT_ADDRESS
 
   app.get('/health', (_req, res) => {
     res.json({ ok: true, memories: idx.store.memories.length, lastBlock: idx.store.lastBlock })
@@ -66,6 +67,54 @@ async function main() {
     }
 
     res.json({ memories: items })
+  })
+
+  /** Upsert a memory row from chain into the local store (same as Vercel seed route). */
+  app.post('/memories/:memoryId/seed', async (req, res) => {
+    if (!contractAddress) {
+      res.status(503).json({ error: 'Indexer has no MEMORY_REGISTRY_ADDRESS' })
+      return
+    }
+    const memoryId = req.params.memoryId
+    if (!/^\d+$/.test(memoryId)) {
+      res.status(400).json({ error: 'Invalid memoryId' })
+      return
+    }
+    try {
+      const exists = idx.store.memories.find((m) => m.memoryId === memoryId)
+      if (exists) {
+        res.json({ ok: true, seeded: false })
+        return
+      }
+      const m = await idx.client.readContract({
+        address: contractAddress,
+        abi: MEMORY_REGISTRY_ABI,
+        functionName: 'getMemory',
+        args: [BigInt(memoryId)]
+      })
+      const zero = '0x0000000000000000000000000000000000000000'
+      if (!m || m.creator.toLowerCase() === zero) {
+        res.status(404).json({ error: 'Memory not found on chain' })
+        return
+      }
+      idx.store.memories.push({
+        memoryId,
+        creator: m.creator,
+        creatorLower: toLowerAddr(m.creator),
+        timestamp: Number(m.timestamp),
+        latitude: Number(m.latitudeE7) / 1e7,
+        longitude: Number(m.longitudeE7) / 1e7,
+        isPublic: Boolean(m.isPublic),
+        title: String(m.title ?? ''),
+        note: String(m.note ?? ''),
+        txHash: null,
+        blockNumber: null
+      })
+      await saveStore(idx.store)
+      res.json({ ok: true, seeded: true })
+    } catch (e) {
+      res.status(500).json({ error: e instanceof Error ? e.message : 'seed failed' })
+    }
   })
 
   /** Attach cover image (client proves wallet by sending creator address; must match on-chain). */
