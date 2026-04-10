@@ -269,9 +269,7 @@ export function Camera() {
     )
   }
 
-  const filterStripBottom = zoomUi
-    ? 'calc(var(--mem-camera-bottom) + 92px + 52px)'
-    : 'calc(var(--mem-camera-bottom) + 92px)'
+  const filterStripBottom = 'calc(var(--mem-camera-bottom) + 92px)'
 
   return (
     <div className="mem-camera">
@@ -322,31 +320,6 @@ export function Camera() {
               Close map
             </button>
           </div>
-        </div>
-      ) : null}
-
-      {zoomUi ? (
-        <div
-          className="mem-camera__zoom"
-          style={{ bottom: 'calc(var(--mem-camera-bottom) + 92px)' }}
-        >
-          <span className="mem-camera__zoom-label" id="mem-camera-zoom-label">
-            Zoom
-          </span>
-          <input
-            type="range"
-            min={zoomUi.min}
-            max={zoomUi.max}
-            step={zoomUi.step}
-            value={zoomUi.value}
-            onChange={(e) => {
-              void handleZoomChange(Number(e.target.value))
-            }}
-            aria-labelledby="mem-camera-zoom-label"
-            aria-valuemin={zoomUi.min}
-            aria-valuemax={zoomUi.max}
-            aria-valuenow={zoomUi.value}
-          />
         </div>
       ) : null}
 
@@ -433,68 +406,75 @@ export function Camera() {
         </button>
       </div>
 
-      <button
-        type="button"
-        className="mem-camera__flip"
-        onClick={handleFlipCamera}
-        disabled={!ready || flipBusy}
-        aria-label={facingMode === 'environment' ? 'Switch to front camera' : 'Switch to back camera'}
-        title={facingMode === 'environment' ? 'Selfie camera' : 'Back camera'}
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" aria-hidden>
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M4 10a7.5 7.5 0 0113.08-2.5M20 14a7.5 7.5 0 01-13.08 2.5"
-          />
-          <path strokeLinecap="round" strokeLinejoin="round" d="M6 5L4 10h5M18 19l2-5h-5" />
-        </svg>
-      </button>
-
-      <button
-        type="button"
-        onClick={() => {
-          if (!MAPBOX_TOKEN) {
-            navigate('/map')
-            return
-          }
-          handleOpenMap()
-        }}
-        aria-label={MAPBOX_TOKEN ? 'Open fullscreen map' : 'Open map'}
-        style={{
-          position: 'absolute',
-          bottom: 'var(--mem-camera-bottom)',
-          right: 'var(--mem-camera-right)',
-          width: 'var(--mem-camera-thumb)',
-          height: 'var(--mem-camera-thumb)',
-          padding: 0,
-          margin: 0,
-          border: '3px solid rgba(201, 162, 39, 0.65)',
-          borderRadius: 10,
-          boxShadow:
-            'inset 0 0 14px rgba(0,0,0,0.45), 0 4px 18px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.06)',
-          background: '#1a1714',
-          overflow: 'hidden',
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 5,
-        }}
-      >
-        {MAPBOX_TOKEN && mapCoords ? (
-          <img
-            src={staticMapUrl(mapCoords.lng, mapCoords.lat, 13, 200, 200)}
-            alt=""
-            width={104}
-            height={104}
-            style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}
-            draggable={false}
-          />
-        ) : (
-          <span style={{ color: 'rgba(232, 197, 71, 0.75)', fontSize: '0.75rem', fontWeight: 600 }}>Map</span>
-        )}
-      </button>
+      <div className="mem-camera__right-stack">
+        {zoomUi ? (
+          <div className="mem-camera__zoom mem-camera__zoom--vertical">
+            <span className="mem-camera__zoom-label" id="mem-camera-zoom-label">
+              Zoom
+            </span>
+            <div className="mem-camera__zoom-range-wrap">
+              <input
+                type="range"
+                className="mem-camera__zoom-range mem-camera__zoom-range--vertical"
+                min={zoomUi.min}
+                max={zoomUi.max}
+                step={zoomUi.step}
+                value={zoomUi.value}
+                onChange={(e) => {
+                  void handleZoomChange(Number(e.target.value))
+                }}
+                aria-labelledby="mem-camera-zoom-label"
+                aria-orientation="vertical"
+                aria-valuemin={zoomUi.min}
+                aria-valuemax={zoomUi.max}
+                aria-valuenow={zoomUi.value}
+              />
+            </div>
+          </div>
+        ) : null}
+        <button
+          type="button"
+          className="mem-camera__flip mem-camera__flip--compact"
+          onClick={handleFlipCamera}
+          disabled={!ready || flipBusy}
+          aria-label={facingMode === 'environment' ? 'Switch to front camera' : 'Switch to back camera'}
+          title={facingMode === 'environment' ? 'Selfie camera' : 'Back camera'}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" aria-hidden>
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M4 10a7.5 7.5 0 0113.08-2.5M20 14a7.5 7.5 0 01-13.08 2.5"
+            />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 5L4 10h5M18 19l2-5h-5" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          className="mem-camera__map-thumb"
+          onClick={() => {
+            if (!MAPBOX_TOKEN) {
+              navigate('/map')
+              return
+            }
+            handleOpenMap()
+          }}
+          aria-label={MAPBOX_TOKEN ? 'Open fullscreen map' : 'Open map'}
+        >
+          {MAPBOX_TOKEN && mapCoords ? (
+            <img
+              src={staticMapUrl(mapCoords.lng, mapCoords.lat, 13, 200, 200)}
+              alt=""
+              width={104}
+              height={104}
+              style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}
+              draggable={false}
+            />
+          ) : (
+            <span style={{ color: 'rgba(232, 197, 71, 0.75)', fontSize: '0.75rem', fontWeight: 600 }}>Map</span>
+          )}
+        </button>
+      </div>
     </div>
   )
 }

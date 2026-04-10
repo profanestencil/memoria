@@ -46,6 +46,8 @@ Photo and location-based memory archive: capture a photo, mint it as an NFT on B
    - For WalletConnect on mobile browsers, ensure external wallet / WalletConnect is not blocked by your app’s login-method settings.
    - **Gas sponsorship (embedded wallets):** In the [Privy dashboard](https://dashboard.privy.io/apps?page=gas_sponsorship), turn on gas sponsorship and add **Base** / **Base Sepolia** to the allowed chains. Allow **client-initiated** sponsored transactions if mints run in the browser. The app calls `sendTransaction` with `sponsor: true` for Privy embedded signers only (Rainbow / MetaMask still pay their own gas). Optional: set `VITE_PRIVY_GAS_SPONSORSHIP=false` to disable the sponsor flag for debugging.
 
+   **Switching to a new Privy app** (new App ID): The client only reads `VITE_PRIVY_APP_ID` (build-time). Server routes use `PRIVY_APP_SECRET` (and may read `VITE_PRIVY_APP_ID` for the same app). In the **new** Privy app, mirror the old app’s settings so behavior matches: **Allowed domains** (production + localhost), **chains** (Base mainnet `8453` and/or Sepolia `84532` to match `VITE_CHAIN`), **login methods** (Wallet, email, etc.), **embedded wallets** / **gas sponsorship** as before. Generate a new **App secret** in the new app, set `PRIVY_APP_SECRET` on Vercel (and locally if you use `/api`), update `VITE_PRIVY_APP_ID` everywhere you build, then **redeploy** the frontend so the bundle picks up the new ID.
+
 3. **Contracts (Base Sepolia or Base mainnet)**
 
    From `contracts/`:

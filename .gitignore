@@ -31,3 +31,4 @@ contracts/artifacts/
 coverage/
 coverage.json
 .vercel
+.npm-cache-vercel/
