@@ -37,6 +37,20 @@ Photo and location-based memory archive: capture a photo, mint it as an NFT on B
    - `VITE_INDEXER_URL` – base URL of the indexer HTTP API (default in dev: `http://localhost:8787`)
    - Pinata uploads: `VITE_PINATA_JWT` (single JWT from Pinata) **or** `VITE_PINATA_API_KEY` + `VITE_PINATA_SECRET` ([Pinata](https://pinata.cloud))
    - Optional: `VITE_NFT_STORAGE_API_KEY` – [NFT.Storage](https://nft.storage) (fallback)
+   - **Admin / runtime API (Vercel):** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (from [Supabase](https://supabase.com) → Project Settings → API), and `ADMIN_SESSION_SECRET` (long random string, min 16 chars). Never expose the service role key to the browser.
+
+   **Supabase CLI — link this repo to your hosted project**
+
+   The repo includes `supabase/config.toml` and migrations under `supabase/migrations/`. To attach your local checkout to a remote project and apply SQL:
+
+   1. Install CLI if needed: `npm i -g supabase` (or use `npx supabase@latest`).
+   2. `supabase login` (opens the browser to authorize the CLI).
+   3. In the [dashboard](https://supabase.com/dashboard), open your project → **Project Settings → General** and copy **Reference ID** (the subdomain in `https://<ref>.supabase.co`).
+   4. From the app root:  
+      `npx supabase@latest link --project-ref <YOUR_REF> --password '<DATABASE_PASSWORD>'`  
+      Use the **database password** from **Project Settings → Database** (not the anon or service_role JWT). If you never saved it, reset it there first.
+   5. Push pending migrations: `npx supabase@latest db push`  
+      (Or run each file manually in **SQL Editor** if you prefer not to use the CLI.)
 
    **Privy dashboard (required for wallet login, especially on mobile):**
 
