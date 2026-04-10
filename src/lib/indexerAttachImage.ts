@@ -15,9 +15,12 @@ export const attachMemoryCoverImage = async (input: {
   memoryId: string
   creator: `0x${string}`
   imageUrl: string
+  campaignTag?: string
+  campaignId?: string
+  pinColor?: string
   maxAttempts?: number
 }): Promise<void> => {
-  const { memoryId, creator, imageUrl, maxAttempts = 12 } = input
+  const { memoryId, creator, imageUrl, campaignTag, campaignId, pinColor, maxAttempts = 12 } = input
   const url = new URL(`/memories/${encodeURIComponent(memoryId)}/image`, indexerUrl).toString()
   let lastErr: string | undefined
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -25,7 +28,13 @@ export const attachMemoryCoverImage = async (input: {
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageUrl, creator }),
+        body: JSON.stringify({
+          imageUrl,
+          creator,
+          ...(campaignTag != null ? { campaignTag } : {}),
+          ...(campaignId != null ? { campaignId } : {}),
+          ...(pinColor != null ? { pinColor } : {}),
+        }),
       })
       if (res.ok) return
       const j = (await res.json().catch(() => ({}))) as { error?: string }

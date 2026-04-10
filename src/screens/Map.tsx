@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import type { Map as MapboxMap } from 'mapbox-gl'
 import { MemoriesMapCanvas } from '@/components/MemoriesMapCanvas'
+import { RuntimeClaimsPanel } from '@/components/RuntimeClaimsPanel'
 import { WalletProfileButton } from '@/components/WalletProfileButton'
 import { getMapboxClientTokenState } from '@/lib/mapboxClientToken'
 
@@ -54,6 +55,7 @@ export function Map() {
           mapInstanceRef.current = m
         }}
       />
+      <RuntimeClaimsPanel />
       <div className="mem-map-overlay">
         <WalletProfileButton />
         <button

@@ -40,6 +40,14 @@ export function RememberHome() {
 
       <main className="mem-main">
         <div className="mem-main__center-block">
+          <img
+            src="/branding/web3-unlocked.png"
+            alt="Web3 Unlocked"
+            className="mem-web3-unlocked-logo"
+            width={180}
+            height={72}
+            decoding="async"
+          />
           <p
             className="mem-display mem-subtitle"
             style={{

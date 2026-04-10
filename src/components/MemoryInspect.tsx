@@ -1,5 +1,10 @@
-import { useCallback, useEffect, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useCallback, useEffect, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
 import type { MemoryPin } from '@/lib/memoryPin'
+import { requestArPermissions } from '@/lib/requestArPermissions'
+
+/** Flip to `true` when the 8th Wall AR flow is stable for production */
+const MEMORY_PIN_AR_ENTRY_ENABLED = false
 
 type PeekProps = {
   pin: MemoryPin
@@ -71,6 +76,70 @@ export const MemoryPinPeek = ({ pin, myAddress, onClose, onOpenDetail }: PeekPro
           : shortAddr(pin.creator)}
         {pin.isPublic ? ' · Public' : ' · Private'}
       </p>
+      {pin.campaignTag ? (
+        <p className="mem-subtle" style={{ margin: '6px 0 0', fontSize: 12 }}>
+          Event: {pin.campaignTag}
+        </p>
+      ) : null}
+      {MEMORY_PIN_AR_ENTRY_ENABLED ? <MemoryPeekArActions pin={pin} /> : null}
+    </div>
+  )
+}
+
+const MemoryPeekArActions = ({ pin }: { pin: MemoryPin }) => {
+  const navigate = useNavigate()
+  const [arUi, setArUi] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null })
+
+  const canViewInAr = Boolean(pin.imageUrl)
+
+  const handleViewInAr = useCallback(async () => {
+    if (!pin.imageUrl) return
+    if (arUi.busy) return
+    setArUi({ busy: true, error: null })
+
+    const perm = await requestArPermissions()
+    if (!perm.ok) {
+      setArUi({ busy: false, error: perm.message })
+      return
+    }
+
+    navigate('/ar', {
+      state: {
+        imageUrl: pin.imageUrl,
+        latitude: pin.latitude,
+        longitude: pin.longitude,
+      },
+    })
+    setArUi({ busy: false, error: null })
+  }, [navigate, pin.imageUrl, pin.latitude, pin.longitude, arUi.busy])
+
+  const handleViewInArKeyDown = useCallback(
+    (e: ReactKeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault()
+        handleViewInAr()
+      }
+    },
+    [handleViewInAr]
+  )
+
+  return (
+    <div className="mem-memory-peek__actions">
+      <button
+        type="button"
+        className="mem-btn mem-btn--primary mem-memory-peek__ar"
+        onClick={handleViewInAr}
+        onKeyDown={handleViewInArKeyDown}
+        disabled={!canViewInAr || arUi.busy}
+        aria-label={canViewInAr ? 'View this memory in AR' : 'AR requires an attached memory image'}
+      >
+        {arUi.busy ? 'Requesting…' : 'View in AR'}
+      </button>
+      {arUi.error ? (
+        <p className="mem-memory-peek__ar-error" role="status" aria-live="polite">
+          {arUi.error}
+        </p>
+      ) : null}
     </div>
   )
 }

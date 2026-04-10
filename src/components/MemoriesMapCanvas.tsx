@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
+import { useNavigate } from 'react-router-dom'
 import { useWallets } from '@privy-io/react-auth'
 import { pickEthereumSigningWallet } from '@/lib/privyWallet'
 import { getMapboxClientTokenState } from '@/lib/mapboxClientToken'
 import type { MemoryPin } from '@/lib/memoryPin'
 import { loadOptimisticPins } from '@/lib/optimisticPinsStorage'
 import { MemoryPinFull, MemoryPinPeek } from '@/components/MemoryInspect'
+import { fetchRuntimeActive, type ActiveRuntimeResponse, type RuntimePoi } from '@/lib/runtimeActive'
 
 const mapboxTokenState = getMapboxClientTokenState()
 const indexerUrl = (import.meta.env.VITE_INDEXER_URL ?? 'http://localhost:8787').replace(/\/$/, '')
@@ -28,7 +30,7 @@ type Props = {
   /** Follow user: initial center + zoom, then moving dot (watchPosition). */
   trackUser?: boolean
   onMapReady?: (map: mapboxgl.Map) => void
-  /** Bumps when navigating here after mint so pins refetch. */
+  /** Bumps when navigating here after mint so pins + runtime refetch. */
   refreshEpoch?: number
 }
 
@@ -48,11 +50,13 @@ export function MemoriesMapCanvas({
   onMapReady,
   refreshEpoch = 0,
 }: Props) {
+  const navigate = useNavigate()
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
   const onMapReadyRef = useRef(onMapReady)
   onMapReadyRef.current = onMapReady
   const markersRef = useRef<mapboxgl.Marker[]>([])
+  const poiMarkersRef = useRef<mapboxgl.Marker[]>([])
   const userMarkerRef = useRef<mapboxgl.Marker | null>(null)
   const watchIdRef = useRef<number | null>(null)
   const userFocusedRef = useRef(false)
@@ -64,6 +68,9 @@ export function MemoriesMapCanvas({
   const [indexerFetchHint, setIndexerFetchHint] = useState<string | null>(null)
   const [selectedPin, setSelectedPin] = useState<MemoryPin | null>(null)
   const [detailPin, setDetailPin] = useState<MemoryPin | null>(null)
+  const [userPos, setUserPos] = useState<{ lat: number; lng: number } | null>(null)
+  const [runtime, setRuntime] = useState<ActiveRuntimeResponse | null>(null)
+  const lastRuntimeGridKey = useRef('')
   const indexerConfigHint = indexerUrlLooksBrokenInProd()
   const indexerBanner = indexerConfigHint ?? indexerFetchHint
   const { wallets } = useWallets()
@@ -128,6 +135,7 @@ export function MemoriesMapCanvas({
   }, [mapReady, myAddress])
 
   const applyUserPosition = useCallback((lng: number, lat: number, animateCenter: boolean) => {
+    setUserPos({ lat, lng })
     const map = mapRef.current
     if (!map) return
     if (!userMarkerRef.current) {
@@ -243,6 +251,8 @@ export function MemoriesMapCanvas({
       setMapReady(false)
       markersRef.current.forEach((m) => m.remove())
       markersRef.current = []
+      poiMarkersRef.current.forEach((m) => m.remove())
+      poiMarkersRef.current = []
       userMarkerRef.current?.remove()
       userMarkerRef.current = null
       userFocusedRef.current = false
@@ -292,6 +302,112 @@ export function MemoriesMapCanvas({
   }, [mapReady, indexerUrl, refreshEpoch])
 
   useEffect(() => {
+    if (!userPos) return
+    const gridKey = `${userPos.lat.toFixed(2)}_${userPos.lng.toFixed(2)}_${refreshEpoch}`
+    if (gridKey === lastRuntimeGridKey.current) return
+    lastRuntimeGridKey.current = gridKey
+    let cancelled = false
+    void fetchRuntimeActive(userPos.lat, userPos.lng).then((r) => {
+      if (!cancelled) setRuntime(r)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [userPos, refreshEpoch])
+
+  const handlePoiTap = useCallback(
+    (poi: RuntimePoi) => {
+      if (poi.tapAction === 'open_url') {
+        const url = typeof poi.payload?.url === 'string' ? poi.payload.url : ''
+        if (url) window.open(url, '_blank', 'noopener,noreferrer')
+        return
+      }
+      if (poi.tapAction === 'open_memory_list') {
+        navigate('/map')
+        return
+      }
+      if (poi.tapAction === 'open_ar_scene') {
+        const p = poi.payload
+        let iframeUrl: string | null =
+          typeof p.iframeUrl === 'string' ? p.iframeUrl : typeof p.url === 'string' ? p.url : null
+        let lat = poi.lat
+        let lng = poi.lng
+        let geoRadiusM = typeof p.geoRadiusM === 'number' ? p.geoRadiusM : 80
+        const sceneId = typeof p.sceneId === 'string' ? p.sceneId : null
+        if (sceneId && runtime?.arScenes?.length) {
+          const sc = runtime.arScenes.find((s) => s.id === sceneId)
+          if (sc) {
+            lat = sc.lat
+            lng = sc.lng
+            geoRadiusM = sc.geoRadiusM
+            if (sc.sceneType === 'iframe_url') {
+              const pl = sc.scenePayload
+              iframeUrl =
+                typeof pl.url === 'string' ? pl.url : typeof pl.iframeUrl === 'string' ? pl.iframeUrl : iframeUrl
+            }
+          }
+        }
+        if (iframeUrl) {
+          navigate('/ar', {
+            state: {
+              mode: 'iframe' as const,
+              iframeUrl,
+              latitude: lat,
+              longitude: lng,
+              geoRadiusM,
+              sceneName: poi.name,
+            },
+          })
+        }
+      }
+    },
+    [navigate, runtime]
+  )
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapReady) return
+    poiMarkersRef.current.forEach((m) => m.remove())
+    poiMarkersRef.current = []
+    for (const poi of runtime?.pois ?? []) {
+      const el = document.createElement('button')
+      el.type = 'button'
+      el.setAttribute('aria-label', poi.name || 'Point of interest')
+      el.style.width = '40px'
+      el.style.height = '40px'
+      el.style.borderRadius = '10px'
+      el.style.cursor = 'pointer'
+      el.style.padding = '0'
+      el.style.border = '2px solid rgba(232, 197, 71, 0.85)'
+      el.style.background = 'rgba(12,10,8,0.88)'
+      el.style.overflow = 'hidden'
+      el.style.boxShadow = '0 4px 14px rgba(0,0,0,0.45)'
+      if (poi.iconUrl) {
+        const img = document.createElement('img')
+        img.src = poi.iconUrl
+        img.alt = ''
+        img.draggable = false
+        img.style.width = '100%'
+        img.style.height = '100%'
+        img.style.objectFit = 'cover'
+        img.style.pointerEvents = 'none'
+        el.appendChild(img)
+      } else {
+        el.textContent = '📍'
+        el.style.fontSize = '20px'
+        el.style.lineHeight = '38px'
+        el.style.textAlign = 'center'
+      }
+      el.addEventListener('click', (e) => {
+        e.stopPropagation()
+        handlePoiTap(poi)
+      })
+      const marker = new mapboxgl.Marker({ element: el }).setLngLat([poi.lng, poi.lat]).addTo(map)
+      poiMarkersRef.current.push(marker)
+    }
+  }, [mapReady, runtime, handlePoiTap])
+
+  useEffect(() => {
     const map = mapRef.current
     if (!map || !mapReady) return
     const clearSelection = () => setSelectedPin(null)
@@ -319,6 +435,7 @@ export function MemoriesMapCanvas({
       const isMine = myAddress ? mem.creator.toLowerCase() === myAddress.toLowerCase() : false
       const showAsPoi = mem.isPublic || isMine
       const size = showAsPoi && mem.imageUrl ? (isMine ? 40 : 36) : isMine ? 34 : 28
+      const hex = mem.pinColor && /^#[0-9a-fA-F]{6}$/i.test(mem.pinColor) ? mem.pinColor : null
 
       const el = document.createElement('button')
       el.type = 'button'
@@ -329,12 +446,15 @@ export function MemoriesMapCanvas({
       el.style.borderRadius = '50%'
       el.style.cursor = 'pointer'
       el.style.padding = '0'
-      el.style.border = '2px solid rgba(255,248,235,0.92)'
-      el.style.boxShadow = isMine
-        ? '0 0 0 6px rgba(201, 162, 39, 0.22)'
-        : '0 0 0 5px rgba(107, 83, 68, 0.2)'
+      el.style.border = hex ? `2px solid ${hex}` : '2px solid rgba(255,248,235,0.92)'
+      el.style.boxShadow = hex
+        ? `0 0 0 5px ${hex}44`
+        : isMine
+          ? '0 0 0 6px rgba(201, 162, 39, 0.22)'
+          : '0 0 0 5px rgba(107, 83, 68, 0.2)'
       el.style.overflow = 'hidden'
-      el.style.background = isMine ? '#c9a227' : '#6b5344'
+      el.style.background =
+        showAsPoi && mem.imageUrl ? (hex ? `${hex}33` : '#1a1714') : hex ?? (isMine ? '#c9a227' : '#6b5344')
       if (showAsPoi && mem.imageUrl) {
         const img = document.createElement('img')
         img.src = mem.imageUrl

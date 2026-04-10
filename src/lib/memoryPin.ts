@@ -10,4 +10,8 @@ export type MemoryPin = {
   note: string
   /** HTTP(S) or ipfs gateway URL set via POST /memories/:id/image */
   imageUrl?: string
+  /** Special-event campaign (indexer / attach payload) */
+  campaignTag?: string
+  campaignId?: string
+  pinColor?: string
 }

@@ -12,10 +12,12 @@ import { WalletProfileButton } from '@/components/WalletProfileButton'
 import type { MemoryPin } from '@/lib/memoryPin'
 import { loadOptimisticPins, saveOptimisticPins } from '@/lib/optimisticPinsStorage'
 import { seedMemoryInIndexer } from '@/lib/indexerSeed'
+import { applyCampaignOverlaysToBlob } from '@/lib/campaignOverlay'
+import type { ActiveCampaign } from '@/lib/runtimeActive'
 
 const memoryRegistryConfigured = Boolean(import.meta.env.VITE_MEMORY_REGISTRY_CONTRACT_ADDRESS)
 
-type LocationState = { imageBlob?: Blob; imageUrl?: string }
+type LocationState = { imageBlob?: Blob; imageUrl?: string; activeCampaign?: ActiveCampaign | null }
 
 const indexerBaseUrl = (import.meta.env.VITE_INDEXER_URL ?? 'http://localhost:8787').replace(/\/$/, '')
 
@@ -42,6 +44,7 @@ export function Preview() {
 
   const imageUrl = state.imageUrl
   const imageBlob = state.imageBlob
+  const activeCampaign = state.activeCampaign ?? null
   const signingWallet = pickEthereumSigningWallet(wallets)
 
   if (!imageUrl || !imageBlob) {
@@ -99,7 +102,14 @@ export function Preview() {
     setPublishing(true)
     setMintingOverlay(null)
     try {
-      const blob = imageBlob!
+      let blob = imageBlob!
+      if (activeCampaign?.overlays?.length) {
+        try {
+          blob = await applyCampaignOverlaysToBlob(blob, activeCampaign.overlays)
+        } catch {
+          /* use pre-overlay blob */
+        }
+      }
       const author = user?.id ?? signingWallet.address
       const walletAddress = signingWallet.address as `0x${string}`
       const sponsorFromEnv = import.meta.env.VITE_PRIVY_GAS_SPONSORSHIP !== 'false'
@@ -121,6 +131,9 @@ export function Preview() {
         authorLabel: author,
         walletAddress,
         evmSigner,
+        ...(activeCampaign?.tag ? { campaignTag: activeCampaign.tag } : {}),
+        ...(activeCampaign?.id ? { campaignId: activeCampaign.id } : {}),
+        ...(activeCampaign?.pinColor ? { pinColor: activeCampaign.pinColor } : {}),
       })
       if (memoryRegistryConfigured) {
         setMintingOverlay({
@@ -177,6 +190,9 @@ export function Preview() {
             title: published.title,
             note: published.note,
             imageUrl: published.coverImageUrl,
+            ...(activeCampaign?.tag ? { campaignTag: activeCampaign.tag } : {}),
+            ...(activeCampaign?.id ? { campaignId: activeCampaign.id } : {}),
+            ...(activeCampaign?.pinColor ? { pinColor: activeCampaign.pinColor } : {}),
           }
           const existing = loadOptimisticPins()
           const key = `${optimistic.creator.toLowerCase()}-${optimistic.memoryId}`
@@ -193,6 +209,9 @@ export function Preview() {
               memoryId: reg.memoryId.toString(),
               creator: walletAddress,
               imageUrl: published.coverImageUrl,
+              ...(activeCampaign?.tag ? { campaignTag: activeCampaign.tag } : {}),
+              ...(activeCampaign?.id ? { campaignId: activeCampaign.id } : {}),
+              ...(activeCampaign?.pinColor ? { pinColor: activeCampaign.pinColor } : {}),
             })
           } catch {
             /* Pin still appears; thumbnail may fill in after indexer sync */

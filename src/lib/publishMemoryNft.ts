@@ -19,6 +19,10 @@ export type PublishMemoryNftInput = {
   walletAddress: `0x${string}`
   /** Embedded wallet: Privy `sendTransaction` + sponsorship; external wallet: EIP-1193. */
   evmSigner: EvmMintSigner
+  /** Active special-event campaign (metadata + indexer) */
+  campaignTag?: string
+  campaignId?: string
+  pinColor?: string
 }
 
 export type PublishMemoryNftResult = {
@@ -32,7 +36,7 @@ export type PublishMemoryNftResult = {
 
 /** Upload watermarked image + metadata to IPFS, then mint MemoryArchive (geo NFT). */
 export const publishMemoryNft = async (input: PublishMemoryNftInput): Promise<PublishMemoryNftResult> => {
-  const { imageBlob, title, note, authorLabel, evmSigner, walletAddress } = input
+  const { imageBlob, title, note, authorLabel, evmSigner, walletAddress, campaignTag, campaignId, pinColor } = input
 
   const [coords, exif] = await Promise.all([getCurrentPosition(), readExif(imageBlob)])
   const watermarked = await watermarkImage(imageBlob)
@@ -53,6 +57,9 @@ export const publishMemoryNft = async (input: PublishMemoryNftInput): Promise<Pu
       { trait_type: 'captureTime', value: captureTime },
       { trait_type: 'author', value: authorLabel },
       ...(exif.device ? [{ trait_type: 'device', value: exif.device }] : []),
+      ...(campaignTag ? [{ trait_type: 'campaignTag', value: campaignTag }] : []),
+      ...(campaignId ? [{ trait_type: 'campaignId', value: campaignId }] : []),
+      ...(pinColor ? [{ trait_type: 'pinColor', value: pinColor }] : []),
     ],
   }
 

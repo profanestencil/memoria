@@ -45,7 +45,7 @@ export default async function handler(req, res) {
     }
   }
 
-  const { imageUrl, creator } = body ?? {}
+  const { imageUrl, creator, campaignTag, campaignId, pinColor } = body ?? {}
   if (!isAllowedImageUrl(imageUrl) || typeof creator !== 'string' || !creator.startsWith('0x')) {
     res.status(400).json({ error: 'imageUrl (http(s) or ipfs) and creator (0x…) required' })
     return
@@ -91,6 +91,9 @@ export default async function handler(req, res) {
     }
 
     mem.imageUrl = imageUrl
+    if (campaignTag != null && campaignTag !== '') mem.campaignTag = String(campaignTag).slice(0, 120)
+    if (campaignId != null && campaignId !== '') mem.campaignId = String(campaignId).slice(0, 80)
+    if (pinColor != null && pinColor !== '') mem.pinColor = String(pinColor).slice(0, 32)
     await saveStore(store)
     res.status(200).json({ ok: true })
   } catch (e) {

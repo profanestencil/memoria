@@ -106,6 +106,8 @@ Photo and location-based memory archive: capture a photo, mint it as an NFT on B
 
    Open the URL (e.g. `http://localhost:5173`) on a phone or use Chrome DevTools device mode. For AR, use an AR-capable device (e.g. Android Chrome, iOS Safari with WebXR).
 
+   **AR engine assets:** The app self-hosts the 8th Wall Engine Binary (`xr.js`) under `public/external/xr/`. `npm install` / `npm run dev` will copy these assets automatically via `scripts/copy-8thwall-assets.mjs`.
+
 ## User flow
 
 1. **Permissions** – Allow location and camera.
