@@ -426,6 +426,8 @@ const ClaimsSection = ({ token: _token, rows, onRefresh }: { token: string; rows
   const [name, setName] = useState('')
   const [starts, setStarts] = useState('')
   const [ends, setEnds] = useState('')
+  const [lat, setLat] = useState('')
+  const [lng, setLng] = useState('')
   const [enforcement, setEnforcement] = useState('offchain')
   const [rewardType, setRewardType] = useState('erc20')
   const [busy, setBusy] = useState(false)
@@ -433,6 +435,9 @@ const ClaimsSection = ({ token: _token, rows, onRefresh }: { token: string; rows
   const handleCreate = async () => {
     setBusy(true)
     try {
+      const latN = lat.trim() ? Number(lat) : NaN
+      const lngN = lng.trim() ? Number(lng) : NaN
+      const hasCoords = Number.isFinite(latN) && Number.isFinite(lngN)
       await adminPost('/api/admin/claims', _token, {
         name,
         starts_at: new Date(starts).toISOString(),
@@ -441,6 +446,7 @@ const ClaimsSection = ({ token: _token, rows, onRefresh }: { token: string; rows
         reward_type: rewardType,
         eligibility: { mode: 'open' },
         reward_payload: {},
+        ...(hasCoords ? { lat: latN, lng: lngN } : {}),
       })
       onRefresh()
     } catch (e) {
@@ -458,6 +464,8 @@ const ClaimsSection = ({ token: _token, rows, onRefresh }: { token: string; rows
           <input className="mem-input" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
           <input className="mem-input" type="datetime-local" value={starts} onChange={(e) => setStarts(e.target.value)} />
           <input className="mem-input" type="datetime-local" value={ends} onChange={(e) => setEnds(e.target.value)} />
+          <input className="mem-input" placeholder="Map pin lat (optional)" value={lat} onChange={(e) => setLat(e.target.value)} />
+          <input className="mem-input" placeholder="Map pin lng (optional)" value={lng} onChange={(e) => setLng(e.target.value)} />
           <select className="mem-input" value={enforcement} onChange={(e) => setEnforcement(e.target.value)}>
             <option value="offchain">offchain</option>
             <option value="onchain">onchain</option>
@@ -473,10 +481,12 @@ const ClaimsSection = ({ token: _token, rows, onRefresh }: { token: string; rows
       </fieldset>
       <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 8 }}>
         {rows.map((r) => {
-          const row = r as { id: string; name?: string; enforcement?: string }
+          const row = r as { id: string; name?: string; enforcement?: string; lat?: number | null; lng?: number | null }
           return (
             <li key={row.id} style={{ padding: 8, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-              {row.name} · {row.enforcement} · <code style={{ fontSize: 11 }}>{row.id}</code>
+              {row.name} · {row.enforcement}
+              {row.lat != null && row.lng != null ? ` · map ${row.lat.toFixed(4)}, ${row.lng.toFixed(4)}` : ''} ·{' '}
+              <code style={{ fontSize: 11 }}>{row.id}</code>
             </li>
           )
         })}

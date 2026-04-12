@@ -123,19 +123,19 @@ export default async function handler(req, res) {
 
     if (sErr) throw sErr
 
-    const arScenes = (sceneRows ?? [])
-      .filter((s) => inCircle(lat, lng, s.lat, s.lng, s.geo_radius_m))
-      .map((s) => ({
-        id: s.id,
-        name: s.name,
-        lat: s.lat,
-        lng: s.lng,
-        geoRadiusM: s.geo_radius_m,
-        sceneType: s.scene_type,
-        scenePayload: s.scene_payload ?? {},
-        startsAt: s.starts_at,
-        endsAt: s.ends_at,
-      }))
+    // All scenes in the time window — map draws pins; geo_radius_m still gates AR entry on /ar.
+    const arScenes = (sceneRows ?? []).map((s) => ({
+      id: s.id,
+      name: s.name,
+      lat: s.lat,
+      lng: s.lng,
+      geoRadiusM: s.geo_radius_m,
+      sceneType: s.scene_type,
+      scenePayload: s.scene_payload ?? {},
+      startsAt: s.starts_at,
+      endsAt: s.ends_at,
+      inRange: inCircle(lat, lng, s.lat, s.lng, s.geo_radius_m),
+    }))
 
     const { data: claimRows, error: clErr } = await sb
       .from('claim_campaigns')
@@ -155,6 +155,8 @@ export default async function handler(req, res) {
       rewardPayload: x.reward_payload ?? {},
       startsAt: x.starts_at,
       endsAt: x.ends_at,
+      lat: x.lat != null ? Number(x.lat) : null,
+      lng: x.lng != null ? Number(x.lng) : null,
     }))
 
     res.status(200).json({

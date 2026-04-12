@@ -1,8 +1,7 @@
 -- Memoria admin + runtime tables (control plane for campaigns, POIs, AR scenes, claims).
 -- Use the Supabase service role from Vercel API only. RLS enabled with no permissive policies
 -- so anon/authenticated clients cannot read/write these tables; service role bypasses RLS.
-
-create extension if not exists "uuid-ossp";
+-- gen_random_uuid() is built into PostgreSQL 13+ (no uuid-ossp extension).
 
 create table if not exists public.admin_users (
   wallet_address text primary key check (wallet_address ~ '^0x[a-fA-F0-9]{40}$'),
@@ -11,7 +10,7 @@ create table if not exists public.admin_users (
 );
 
 create table if not exists public.admin_nonces (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   wallet_address text not null check (wallet_address ~ '^0x[a-fA-F0-9]{40}$'),
   nonce text not null,
   expires_at timestamptz not null,
@@ -22,7 +21,7 @@ create index if not exists idx_admin_nonces_wallet on public.admin_nonces (walle
 create index if not exists idx_admin_nonces_expires on public.admin_nonces (expires_at);
 
 create table if not exists public.campaigns (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   name text not null,
   slug text not null unique,
   starts_at timestamptz not null,
@@ -36,7 +35,7 @@ create table if not exists public.campaigns (
 );
 
 create table if not exists public.campaign_geofences (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   campaign_id uuid not null references public.campaigns (id) on delete cascade,
   shape_type text not null default 'circle' check (shape_type in ('circle')),
   center_lat double precision not null,
@@ -47,7 +46,7 @@ create table if not exists public.campaign_geofences (
 create index if not exists idx_campaign_geofences_campaign on public.campaign_geofences (campaign_id);
 
 create table if not exists public.campaign_overlays (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   campaign_id uuid not null references public.campaigns (id) on delete cascade,
   overlay_type text not null default 'image' check (overlay_type in ('image')),
   asset_url text not null,
@@ -62,7 +61,7 @@ create table if not exists public.campaign_overlays (
 create index if not exists idx_campaign_overlays_campaign on public.campaign_overlays (campaign_id);
 
 create table if not exists public.map_pois (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   name text not null,
   starts_at timestamptz not null,
   ends_at timestamptz not null,
@@ -79,7 +78,7 @@ create table if not exists public.map_pois (
 create index if not exists idx_map_pois_window on public.map_pois (starts_at, ends_at);
 
 create table if not exists public.ar_scenes (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   name text not null,
   starts_at timestamptz not null,
   ends_at timestamptz not null,
@@ -96,7 +95,7 @@ create table if not exists public.ar_scenes (
 create index if not exists idx_ar_scenes_window on public.ar_scenes (starts_at, ends_at);
 
 create table if not exists public.claim_campaigns (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   name text not null,
   starts_at timestamptz not null,
   ends_at timestamptz not null,
@@ -110,7 +109,7 @@ create table if not exists public.claim_campaigns (
 create index if not exists idx_claim_campaigns_window on public.claim_campaigns (starts_at, ends_at);
 
 create table if not exists public.claim_redemptions (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   claim_campaign_id uuid not null references public.claim_campaigns (id) on delete cascade,
   wallet_address text not null check (wallet_address ~ '^0x[a-fA-F0-9]{40}$'),
   redeemed_at timestamptz not null default now(),

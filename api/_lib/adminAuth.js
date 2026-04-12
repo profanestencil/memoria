@@ -9,6 +9,12 @@ const getSecret = () => {
   return s
 }
 
+/** True when the server can issue and verify admin HMAC tokens. */
+export const isAdminSessionConfigured = () => {
+  const s = process.env.ADMIN_SESSION_SECRET
+  return typeof s === 'string' && s.length >= 16
+}
+
 /**
  * @param {string} address 0x-prefixed checksummed or lower
  * @returns {string} token for Authorization: Bearer

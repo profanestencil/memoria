@@ -2,6 +2,7 @@ import { PrivyProvider } from '@privy-io/react-auth'
 import { base, baseSepolia } from 'wagmi/chains'
 import { IllustMark } from '@/components/IllustMark'
 import { AppProvider } from './AppProvider'
+import { PrivyTeeMigration } from './PrivyTeeMigration'
 import { Router } from './Router'
 
 const privyAppId = import.meta.env.VITE_PRIVY_APP_ID
@@ -48,6 +49,7 @@ export function App() {
       }}
     >
       <AppProvider>
+        <PrivyTeeMigration />
         <Router />
       </AppProvider>
     </PrivyProvider>

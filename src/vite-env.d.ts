@@ -2,6 +2,8 @@
 
 interface ImportMetaEnv {
   readonly VITE_PRIVY_APP_ID: string
+  /** When not `false`, embedded-wallet mints use Privy `sponsor: true` (default). */
+  readonly VITE_PRIVY_GAS_SPONSORSHIP?: string
   readonly VITE_MAPBOX_ACCESS_TOKEN: string
   readonly VITE_BASE_RPC_URL: string
   readonly VITE_MEMORY_ARCHIVE_CONTRACT_ADDRESS: string

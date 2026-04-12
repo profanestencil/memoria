@@ -8,7 +8,13 @@ import { getMapboxClientTokenState } from '@/lib/mapboxClientToken'
 import type { MemoryPin } from '@/lib/memoryPin'
 import { loadOptimisticPins } from '@/lib/optimisticPinsStorage'
 import { MemoryPinFull, MemoryPinPeek } from '@/components/MemoryInspect'
-import { fetchRuntimeActive, type ActiveRuntimeResponse, type RuntimePoi } from '@/lib/runtimeActive'
+import {
+  fetchRuntimeActive,
+  type ActiveRuntimeResponse,
+  type RuntimeArScene,
+  type RuntimeClaimCampaign,
+  type RuntimePoi,
+} from '@/lib/runtimeActive'
 
 const mapboxTokenState = getMapboxClientTokenState()
 const indexerUrl = (import.meta.env.VITE_INDEXER_URL ?? 'http://localhost:8787').replace(/\/$/, '')
@@ -57,6 +63,8 @@ export function MemoriesMapCanvas({
   onMapReadyRef.current = onMapReady
   const markersRef = useRef<mapboxgl.Marker[]>([])
   const poiMarkersRef = useRef<mapboxgl.Marker[]>([])
+  const arSceneMarkersRef = useRef<mapboxgl.Marker[]>([])
+  const claimMarkersRef = useRef<mapboxgl.Marker[]>([])
   const userMarkerRef = useRef<mapboxgl.Marker | null>(null)
   const watchIdRef = useRef<number | null>(null)
   const userFocusedRef = useRef(false)
@@ -70,6 +78,8 @@ export function MemoriesMapCanvas({
   const [detailPin, setDetailPin] = useState<MemoryPin | null>(null)
   const [userPos, setUserPos] = useState<{ lat: number; lng: number } | null>(null)
   const [runtime, setRuntime] = useState<ActiveRuntimeResponse | null>(null)
+  const [runtimeAnchor, setRuntimeAnchor] = useState<{ lat: number; lng: number } | null>(null)
+  const [claimTip, setClaimTip] = useState<RuntimeClaimCampaign | null>(null)
   const lastRuntimeGridKey = useRef('')
   const indexerConfigHint = indexerUrlLooksBrokenInProd()
   const indexerBanner = indexerConfigHint ?? indexerFetchHint
@@ -253,6 +263,10 @@ export function MemoriesMapCanvas({
       markersRef.current = []
       poiMarkersRef.current.forEach((m) => m.remove())
       poiMarkersRef.current = []
+      arSceneMarkersRef.current.forEach((m) => m.remove())
+      arSceneMarkersRef.current = []
+      claimMarkersRef.current.forEach((m) => m.remove())
+      claimMarkersRef.current = []
       userMarkerRef.current?.remove()
       userMarkerRef.current = null
       userFocusedRef.current = false
@@ -302,18 +316,39 @@ export function MemoriesMapCanvas({
   }, [mapReady, indexerUrl, refreshEpoch])
 
   useEffect(() => {
-    if (!userPos) return
-    const gridKey = `${userPos.lat.toFixed(2)}_${userPos.lng.toFixed(2)}_${refreshEpoch}`
+    if (!mapReady) return
+    const map = mapRef.current
+    if (!map) return
+    const syncAnchor = () => {
+      if (userPos) {
+        setRuntimeAnchor(userPos)
+        return
+      }
+      const c = map.getCenter()
+      setRuntimeAnchor({ lat: c.lat, lng: c.lng })
+    }
+    syncAnchor()
+    if (!userPos) {
+      map.on('moveend', syncAnchor)
+    }
+    return () => {
+      if (!userPos) map.off('moveend', syncAnchor)
+    }
+  }, [mapReady, userPos])
+
+  useEffect(() => {
+    if (!runtimeAnchor) return
+    const gridKey = `${runtimeAnchor.lat.toFixed(2)}_${runtimeAnchor.lng.toFixed(2)}_${refreshEpoch}`
     if (gridKey === lastRuntimeGridKey.current) return
     lastRuntimeGridKey.current = gridKey
     let cancelled = false
-    void fetchRuntimeActive(userPos.lat, userPos.lng).then((r) => {
+    void fetchRuntimeActive(runtimeAnchor.lat, runtimeAnchor.lng).then((r) => {
       if (!cancelled) setRuntime(r)
     })
     return () => {
       cancelled = true
     }
-  }, [userPos, refreshEpoch])
+  }, [runtimeAnchor, refreshEpoch])
 
   const handlePoiTap = useCallback(
     (poi: RuntimePoi) => {
@@ -364,6 +399,33 @@ export function MemoriesMapCanvas({
     [navigate, runtime]
   )
 
+  const handleArSceneTap = useCallback(
+    (scene: RuntimeArScene) => {
+      if (scene.sceneType === 'iframe_url') {
+        const pl = scene.scenePayload
+        const iframeUrl =
+          typeof pl?.url === 'string'
+            ? pl.url
+            : typeof pl?.iframeUrl === 'string'
+              ? pl.iframeUrl
+              : null
+        if (iframeUrl) {
+          navigate('/ar', {
+            state: {
+              mode: 'iframe' as const,
+              iframeUrl,
+              latitude: scene.lat,
+              longitude: scene.lng,
+              geoRadiusM: scene.geoRadiusM,
+              sceneName: scene.name,
+            },
+          })
+        }
+      }
+    },
+    [navigate]
+  )
+
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapReady) return
@@ -410,7 +472,86 @@ export function MemoriesMapCanvas({
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapReady) return
-    const clearSelection = () => setSelectedPin(null)
+    arSceneMarkersRef.current.forEach((m) => m.remove())
+    arSceneMarkersRef.current = []
+    for (const scene of runtime?.arScenes ?? []) {
+      const el = document.createElement('button')
+      el.type = 'button'
+      el.setAttribute('aria-label', scene.name ? `AR: ${scene.name}` : 'AR scene')
+      el.style.width = '40px'
+      el.style.height = '40px'
+      el.style.borderRadius = '50%'
+      el.style.cursor = 'pointer'
+      el.style.padding = '0'
+      el.style.border = '2px solid rgba(255, 150, 70, 0.9)'
+      el.style.background = 'rgba(12,10,8,0.88)'
+      el.style.overflow = 'hidden'
+      el.style.boxShadow = '0 4px 14px rgba(0,0,0,0.45)'
+      const img = document.createElement('img')
+      img.src = `${import.meta.env.BASE_URL}ar-scene-pin.png`
+      img.alt = ''
+      img.draggable = false
+      img.style.width = '100%'
+      img.style.height = '100%'
+      img.style.objectFit = 'cover'
+      img.style.pointerEvents = 'none'
+      img.style.display = 'block'
+      el.appendChild(img)
+      el.addEventListener('click', (e) => {
+        e.stopPropagation()
+        handleArSceneTap(scene)
+      })
+      const marker = new mapboxgl.Marker({ element: el }).setLngLat([scene.lng, scene.lat]).addTo(map)
+      arSceneMarkersRef.current.push(marker)
+    }
+  }, [mapReady, runtime, handleArSceneTap])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapReady) return
+    claimMarkersRef.current.forEach((m) => m.remove())
+    claimMarkersRef.current = []
+    for (const camp of runtime?.claimCampaigns ?? []) {
+      if (camp.lat == null || camp.lng == null) continue
+      if (!Number.isFinite(camp.lat) || !Number.isFinite(camp.lng)) continue
+      const el = document.createElement('button')
+      el.type = 'button'
+      el.setAttribute('aria-label', camp.name ? `Reward: ${camp.name}` : 'Reward campaign')
+      el.style.width = '40px'
+      el.style.height = '40px'
+      el.style.borderRadius = '50%'
+      el.style.cursor = 'pointer'
+      el.style.padding = '0'
+      el.style.border = '2px solid rgba(255, 200, 140, 0.85)'
+      el.style.background = 'rgba(12,10,8,0.88)'
+      el.style.overflow = 'hidden'
+      el.style.boxShadow = '0 4px 14px rgba(0,0,0,0.45)'
+      const img = document.createElement('img')
+      img.src = `${import.meta.env.BASE_URL}claim-pin.png`
+      img.alt = ''
+      img.draggable = false
+      img.style.width = '100%'
+      img.style.height = '100%'
+      img.style.objectFit = 'cover'
+      img.style.pointerEvents = 'none'
+      img.style.display = 'block'
+      el.appendChild(img)
+      el.addEventListener('click', (e) => {
+        e.stopPropagation()
+        setClaimTip(camp)
+      })
+      const marker = new mapboxgl.Marker({ element: el }).setLngLat([camp.lng, camp.lat]).addTo(map)
+      claimMarkersRef.current.push(marker)
+    }
+  }, [mapReady, runtime])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapReady) return
+    const clearSelection = () => {
+      setSelectedPin(null)
+      setClaimTip(null)
+    }
     map.on('click', clearSelection)
     return () => {
       map.off('click', clearSelection)
@@ -522,6 +663,37 @@ export function MemoriesMapCanvas({
         ...style,
       }}
     >
+      {claimTip ? (
+        <div
+          role="dialog"
+          aria-label="Reward campaign"
+          style={{
+            position: 'absolute',
+            left: 12,
+            right: 12,
+            bottom: showGeoPrompt ? 120 : 24,
+            zIndex: 6,
+            maxWidth: 400,
+            margin: '0 auto',
+            padding: '14px 16px',
+            borderRadius: 12,
+            background: 'rgba(12, 10, 8, 0.94)',
+            border: '1px solid rgba(180, 255, 160, 0.35)',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.35)',
+            color: 'var(--mem-text, #f5f0e8)',
+            fontSize: 14,
+            lineHeight: 1.45,
+          }}
+        >
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>{claimTip.name}</div>
+          <p style={{ margin: '0 0 10px', opacity: 0.9, fontSize: 13 }}>
+            Open the <strong>Rewards</strong> panel (bottom-right) to sign and claim this campaign.
+          </p>
+          <button type="button" className="mem-btn mem-btn--secondary" style={{ width: '100%' }} onClick={() => setClaimTip(null)}>
+            Dismiss
+          </button>
+        </div>
+      ) : null}
       {indexerBanner ? (
         <div
           role="status"

@@ -2,7 +2,7 @@ import { createWalletClient, custom, encodeFunctionData, type WalletClient } fro
 import { writeContract } from 'viem/actions'
 import { appChain } from './chain'
 import { MEMORY_ARCHIVE_ABI } from './abi/memory-archive'
-import type { EvmMintSigner } from './evmMintBridge'
+import { privySendTransactionMaybeSponsored, type EvmMintSigner } from './evmMintBridge'
 
 const contractAddress = import.meta.env.VITE_MEMORY_ARCHIVE_CONTRACT_ADDRESS as `0x${string}`
 
@@ -33,12 +33,11 @@ export async function mintMemory(
       functionName: 'mint',
       args: viemArgs,
     })
-    const { hash } = await signer.sendTransaction(
+    const { hash } = await privySendTransactionMaybeSponsored(
+      signer.sendTransaction,
       { to: contractAddress, data, chainId: chain.id, from: walletAddress },
-      {
-        sponsor: signer.sponsor !== false,
-        uiOptions: { description: 'Mint your memory on Base' },
-      }
+      { uiOptions: { description: 'Mint your memory on Base' } },
+      signer.sponsor !== false
     )
     return hash
   }

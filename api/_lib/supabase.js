@@ -12,3 +12,15 @@ export const getServiceSupabase = () => {
   }
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } })
 }
+
+/**
+ * PostgrestError from @supabase/supabase-js is not instanceof Error.
+ * Use this after inserts/selects so catch blocks can return e.message to the client.
+ * @param {{ message?: string, details?: string, hint?: string, code?: string } | null | undefined} err
+ */
+export const throwIfSupabaseError = (err) => {
+  if (!err) return
+  const parts = [err.message, err.details, err.hint].filter(Boolean)
+  const msg = parts.length ? parts.join(' — ') : 'Database error'
+  throw new Error(msg)
+}

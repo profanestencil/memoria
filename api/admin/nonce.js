@@ -1,4 +1,4 @@
-import { isSupabaseConfigured, getServiceSupabase } from '../_lib/supabase.js'
+import { isSupabaseConfigured, getServiceSupabase, throwIfSupabaseError } from '../_lib/supabase.js'
 import crypto from 'crypto'
 
 const normalizeAddr = (a) => {
@@ -40,12 +40,13 @@ export default async function handler(req, res) {
       nonce,
       expires_at: expiresAt,
     })
-    if (error) throw error
+    throwIfSupabaseError(error)
 
     const message = `Memoria Admin Login\nWallet: ${address}\nNonce: ${nonce}\nExpires: ${expiresAt}`
 
     res.status(200).json({ nonce, message, expiresAt })
   } catch (e) {
+    console.error('[api/admin/nonce]', e)
     res.status(500).json({ error: e instanceof Error ? e.message : 'nonce_failed' })
   }
 }

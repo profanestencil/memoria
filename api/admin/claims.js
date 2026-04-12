@@ -51,22 +51,36 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'POST') {
-      const { name, starts_at, ends_at, enforcement, eligibility = {}, reward_type, reward_payload = {} } = body ?? {}
+      const {
+        name,
+        starts_at,
+        ends_at,
+        enforcement,
+        eligibility = {},
+        reward_type,
+        reward_payload = {},
+        lat: latRaw,
+        lng: lngRaw,
+      } = body ?? {}
       if (!name || !starts_at || !ends_at || !enforcement || !reward_type) {
         res.status(400).json({ error: 'name, starts_at, ends_at, enforcement, reward_type required' })
         return
       }
+      const lat = latRaw != null && latRaw !== '' ? Number(latRaw) : null
+      const lng = lngRaw != null && lngRaw !== '' ? Number(lngRaw) : null
+      const row = {
+        name,
+        starts_at,
+        ends_at,
+        enforcement,
+        eligibility,
+        reward_type,
+        reward_payload,
+        ...(Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : { lat: null, lng: null }),
+      }
       const { data, error } = await sb
         .from('claim_campaigns')
-        .insert({
-          name,
-          starts_at,
-          ends_at,
-          enforcement,
-          eligibility,
-          reward_type,
-          reward_payload,
-        })
+        .insert(row)
         .select()
         .single()
       if (error) throw error
@@ -89,6 +103,22 @@ export default async function handler(req, res) {
         ...(body.eligibility != null ? { eligibility: body.eligibility } : {}),
         ...(body.reward_type != null ? { reward_type: body.reward_type } : {}),
         ...(body.reward_payload != null ? { reward_payload: body.reward_payload } : {}),
+        ...(body.lat !== undefined
+          ? {
+              lat:
+                body.lat != null && body.lat !== ''
+                  ? Number(body.lat)
+                  : null,
+            }
+          : {}),
+        ...(body.lng !== undefined
+          ? {
+              lng:
+                body.lng != null && body.lng !== ''
+                  ? Number(body.lng)
+                  : null,
+            }
+          : {}),
       }
       const { data, error } = await sb.from('claim_campaigns').update(row).eq('id', id).select().single()
       if (error) throw error

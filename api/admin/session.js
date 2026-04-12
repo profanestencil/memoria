@@ -1,5 +1,5 @@
-import { isSupabaseConfigured, getServiceSupabase } from '../_lib/supabase.js'
-import { issueAdminToken, verifyWalletSignature } from '../_lib/adminAuth.js'
+import { isSupabaseConfigured, getServiceSupabase, throwIfSupabaseError } from '../_lib/supabase.js'
+import { issueAdminToken, isAdminSessionConfigured, verifyWalletSignature } from '../_lib/adminAuth.js'
 
 const normalizeAddr = (a) => {
   if (typeof a !== 'string' || !/^0x[a-fA-F0-9]{40}$/.test(a)) return null
@@ -21,6 +21,14 @@ export default async function handler(req, res) {
 
   if (!isSupabaseConfigured()) {
     res.status(503).json({ error: 'Supabase not configured' })
+    return
+  }
+
+  if (!isAdminSessionConfigured()) {
+    res.status(503).json({
+      error:
+        'Admin session signing is not configured. Set ADMIN_SESSION_SECRET (at least 16 characters) in server environment (e.g. Vercel → Project → Settings → Environment Variables), then redeploy. For local dev, add it to .env in the repo root.',
+    })
     return
   }
 
@@ -62,7 +70,7 @@ export default async function handler(req, res) {
       .gt('expires_at', nowIso)
       .limit(1)
 
-    if (nErr) throw nErr
+    throwIfSupabaseError(nErr)
     if (!rows?.length) {
       res.status(401).json({ error: 'Invalid or expired nonce' })
       return
@@ -85,7 +93,7 @@ export default async function handler(req, res) {
       .limit(1)
       .maybeSingle()
 
-    if (aErr) throw aErr
+    throwIfSupabaseError(aErr)
     if (!adminRow) {
       res.status(403).json({ error: 'Wallet is not an admin' })
       return
@@ -96,6 +104,7 @@ export default async function handler(req, res) {
     const token = issueAdminToken(address)
     res.status(200).json({ ok: true, token })
   } catch (e) {
+    console.error('[api/admin/session]', e)
     res.status(500).json({ error: e instanceof Error ? e.message : 'session_failed' })
   }
 }

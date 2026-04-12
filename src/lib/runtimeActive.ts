@@ -43,6 +43,8 @@ export type RuntimeArScene = {
   scenePayload: Record<string, unknown>
   startsAt: string
   endsAt: string
+  /** Present when API includes geo hint (user/query point vs scene radius). */
+  inRange?: boolean
 }
 
 export type RuntimeClaimCampaign = {
@@ -54,6 +56,8 @@ export type RuntimeClaimCampaign = {
   rewardPayload: Record<string, unknown>
   startsAt: string
   endsAt: string
+  lat: number | null
+  lng: number | null
 }
 
 export type ActiveRuntimeResponse = {
@@ -85,6 +89,12 @@ export const fetchRuntimeActive = async (lat: number, lng: number, nowMs?: numbe
       claimCampaigns: [],
     }
   }
+  const claims = (j.claimCampaigns ?? []).map((c) => ({
+    ...c,
+    lat: typeof c.lat === 'number' && Number.isFinite(c.lat) ? c.lat : null,
+    lng: typeof c.lng === 'number' && Number.isFinite(c.lng) ? c.lng : null,
+  }))
+
   return {
     ok: Boolean(j.ok),
     configured: j.configured,
@@ -92,7 +102,7 @@ export const fetchRuntimeActive = async (lat: number, lng: number, nowMs?: numbe
     campaigns: j.campaigns ?? [],
     pois: j.pois ?? [],
     arScenes: j.arScenes ?? [],
-    claimCampaigns: j.claimCampaigns ?? [],
+    claimCampaigns: claims,
     hint: j.hint,
   }
 }

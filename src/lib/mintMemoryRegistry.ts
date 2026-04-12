@@ -10,7 +10,10 @@ import {
 import { writeContract } from 'viem/actions'
 import { MEMORY_REGISTRY_ABI } from '@/lib/abi/memory-registry'
 import { appChain } from '@/lib/chain'
-import type { EvmMintSigner } from '@/lib/evmMintBridge'
+import {
+  privySendTransactionMaybeSponsored,
+  type EvmMintSigner,
+} from '@/lib/evmMintBridge'
 
 const contractAddress = import.meta.env.VITE_MEMORY_REGISTRY_CONTRACT_ADDRESS as `0x${string}`
 
@@ -81,12 +84,11 @@ export async function mintMemoryRegistry(
       functionName: 'mintMemory',
       args: viemArgs,
     })
-    const sent = await signer.sendTransaction(
+    const sent = await privySendTransactionMaybeSponsored(
+      signer.sendTransaction,
       { to: contractAddress, data, chainId: chain.id, from: walletAddress },
-      {
-        sponsor: signer.sponsor !== false,
-        uiOptions: { description: 'Register this memory on-chain' },
-      }
+      { uiOptions: { description: 'Register this memory on-chain' } },
+      signer.sponsor !== false
     )
     hash = sent.hash
   } else {
