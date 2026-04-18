@@ -591,6 +591,7 @@ function ArMemoryXR({ state }: { state: LocationState }) {
           // Critical: do not clear to opaque black. GlTextureRenderer renders the camera background;
           // if Three.js clears the framebuffer, you only see black.
           try {
+            xrScene.scene.background = null
             xrScene.renderer.autoClear = false
             xrScene.renderer.setClearColor(0x000000, 0)
           } catch {
@@ -744,15 +745,27 @@ function ArMemoryXR({ state }: { state: LocationState }) {
           pushDebug('XR8.runPreRender missing')
         }
 
+        const xr8Bag = x as Record<string, unknown>
+        const g = globalThis as unknown as { XR8?: Record<string, unknown> }
+        const cameraPixelArray = xr8Bag.CameraPixelArray ?? g.XR8?.CameraPixelArray
+        const yuvPixelsArray = xr8Bag.YuvPixelsArray ?? g.XR8?.YuvPixelsArray
+        /** Prefer RGB camera texture; YUV is alternate feed in the same engine build */
+        const pixelFeedApi = (cameraPixelArray ?? yuvPixelsArray) as
+          | { pipelineModule?: (opts?: object) => unknown }
+          | undefined
+
         pushDebug(
-          `XR8 modules: Canvas=${Boolean(x.Canvas)} Camera=${Boolean(x.Camera)} GlTextureRenderer=${Boolean(
+          `XR8 modules: CameraPixelArray=${Boolean(cameraPixelArray)} YuvPixelsArray=${Boolean(yuvPixelsArray)} Canvas=${Boolean(x.Canvas)} Camera=${Boolean(x.Camera)} GlTextureRenderer=${Boolean(
             x.GlTextureRenderer
           )} Threejs=${Boolean(x.Threejs)} XrController=${Boolean(x.XrController)}`
+        )
+        pushDebug(
+          `sdkFix=v3 pixelFeed=${cameraPixelArray ? 'CameraPixelArray' : yuvPixelsArray ? 'YuvPixelsArray' : 'MISSING'}`
         )
 
         const xrCanvas = ensureXrViewportDom()
         pushDebug(
-          `XR8 bootstrap sdkFix=v2 viewport ok #arview=${Boolean(document.getElementById('arview'))} canvas=${xrCanvas.width}x${xrCanvas.height}`
+          `XR8 bootstrap sdkFix=v3 viewport ok #arview=${Boolean(document.getElementById('arview'))} canvas=${xrCanvas.width}x${xrCanvas.height}`
         )
 
         sizeCanvasToViewport(x)
@@ -784,9 +797,11 @@ function ArMemoryXR({ state }: { state: LocationState }) {
           }
         }
 
-        // Pipeline modules: include optional camera/canvas modules when present.
-        // Some engine builds require a Camera and/or Canvas pipeline module for camera background output.
+        // CameraPixelArray (or YuvPixelsArray) registers the texture provider GlTextureRenderer uses; without it
+        // the framebuffer can stay blank (often reads as white behind transparent clears).
+        // Order: feed → GL background → Three.js → controller → app logic.
         const modules = [
+          pixelFeedApi?.pipelineModule?.(),
           x.Canvas?.pipelineModule?.(),
           x.Camera?.pipelineModule?.(),
           x.GlTextureRenderer?.pipelineModule?.(),
@@ -802,7 +817,7 @@ function ArMemoryXR({ state }: { state: LocationState }) {
         }
 
         if (x.run) {
-          pushDebug('XR8.run(canvasElement, {}) sdkFix=v2')
+          pushDebug('XR8.run(canvasElement, {}) sdkFix=v3')
           // First argument must be the WebGL canvas; second is session config (`{}` ok).
           // `XR8.run({})` leaves pipeline without a canvas — `#overlayView3d` never existed.
           x.run(xrCanvas, {})
