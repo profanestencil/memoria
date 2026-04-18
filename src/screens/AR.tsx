@@ -3,17 +3,29 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { distanceMeters } from '@/lib/geoAr'
+import { ensureXrViewportDom } from '@/lib/ensureXrViewportDom'
 import { loadXrEngine } from '@/lib/loadXrEngine'
+import { createAudioReactiveSphere, type AudioReactiveSphereHandle } from '@/lib/arAudioReactiveSphere'
 import { ArIframeScene } from '@/screens/ArIframeScene'
 
 type LocationState = {
   imageUrl?: string
+  /** Playable URL (https or resolved); for audio-memory AR */
+  audioUrl?: string
+  audioLoop?: boolean
   latitude?: number
   longitude?: number
   mode?: 'iframe'
   iframeUrl?: string
   geoRadiusM?: number
   sceneName?: string
+}
+
+type XrBuiltContent = {
+  anchor: THREE.Group
+  plane: THREE.Mesh
+  shadow: THREE.Mesh
+  audioHandle?: AudioReactiveSphereHandle
 }
 
 type MachineState =
@@ -67,7 +79,31 @@ function ArMemoryXR({ state }: { state: LocationState }) {
     return 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/ax6E4UAAAAASUVORK5CYII='
   }, [debugEnabled])
 
-  const imageUrl = state.imageUrl ?? debugImageUrl ?? undefined
+  const debugAudioUrl = useMemo(() => {
+    if (!debugEnabled) return null
+    try {
+      return new URL(window.location.href).searchParams.get('audioUrl')
+    } catch {
+      return null
+    }
+  }, [debugEnabled])
+
+  const resolvedAudioUrl = useMemo(() => {
+    const fromState = state.audioUrl?.trim()
+    if (fromState) return fromState
+    if (debugAudioUrl?.trim()) return debugAudioUrl.trim()
+    return undefined
+  }, [state.audioUrl, debugAudioUrl])
+
+  const isAudioAr = Boolean(resolvedAudioUrl)
+
+  const resolvedImageUrl = useMemo(() => {
+    if (isAudioAr) return undefined
+    return state.imageUrl ?? debugImageUrl ?? undefined
+  }, [isAudioAr, state.imageUrl, debugImageUrl])
+
+  const audioLoop = Boolean(state.audioLoop)
+
   const targetLat = state.latitude
   const targetLng = state.longitude
 
@@ -127,12 +163,15 @@ function ArMemoryXR({ state }: { state: LocationState }) {
   const xrSceneRef = useRef<{ scene: THREE.Scene; camera: THREE.Camera; renderer: THREE.WebGLRenderer } | null>(null)
   const placedRef = useRef<{
     anchor: THREE.Group
-    plane: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshStandardMaterial>
-    shadow: THREE.Mesh<THREE.PlaneGeometry, THREE.ShadowMaterial>
+    plane: THREE.Mesh
+    shadow: THREE.Mesh
     baseY: number
     placedAtMs: number
     dropAtMs: number
   } | null>(null)
+
+  const sphereHandleRef = useRef<AudioReactiveSphereHandle | null>(null)
+  const audioPlaybackStartedRef = useRef(false)
 
   const hitWindowRef = useRef<{
     frames: number
@@ -208,10 +247,7 @@ function ArMemoryXR({ state }: { state: LocationState }) {
     pmrem.dispose()
   }
 
-  const buildContent = async (scene: THREE.Scene, renderer: THREE.WebGLRenderer) => {
-    if (!imageUrl) throw new Error('No imageUrl')
-
-    // Lighting
+  const addArLighting = (scene: THREE.Scene) => {
     const hemi = new THREE.HemisphereLight(0xffffff, 0x202020, 0.6)
     scene.add(hemi)
 
@@ -226,12 +262,35 @@ function ArMemoryXR({ state }: { state: LocationState }) {
     dir.shadow.camera.top = 6
     dir.shadow.camera.bottom = -6
     scene.add(dir)
+  }
+
+  const buildAudioContent = async (scene: THREE.Scene, renderer: THREE.WebGLRenderer): Promise<XrBuiltContent> => {
+    if (!resolvedAudioUrl) throw new Error('No audio URL')
+    addArLighting(scene)
+    const audioHandle = await createAudioReactiveSphere({
+      audioUrl: resolvedAudioUrl,
+      loop: audioLoop,
+    })
+    scene.add(audioHandle.anchor)
+    ensureThreeSceneConfigured(renderer, scene)
+    return {
+      anchor: audioHandle.anchor,
+      plane: audioHandle.sphere,
+      shadow: audioHandle.shadow,
+      audioHandle,
+    }
+  }
+
+  const buildContent = async (scene: THREE.Scene, renderer: THREE.WebGLRenderer): Promise<XrBuiltContent> => {
+    if (!resolvedImageUrl) throw new Error('No imageUrl')
+
+    addArLighting(scene)
 
     // Memory plane
     const tex = await new Promise<THREE.Texture>((resolve, reject) => {
       const loader = new THREE.TextureLoader()
       loader.load(
-        imageUrl,
+        resolvedImageUrl,
         (t) => resolve(t),
         undefined,
         () => reject(new Error('Failed to load image'))
@@ -277,9 +336,16 @@ function ArMemoryXR({ state }: { state: LocationState }) {
 
   // Geo + state machine driver
   useEffect(() => {
-    if (!imageUrl || targetLat == null || targetLng == null) {
-      if (debugEnabled && imageUrl) {
-        // Debug mode: allow starting AR without coming from the map and without geo gating.
+    const hasPayload = isAudioAr ? Boolean(resolvedAudioUrl) : Boolean(resolvedImageUrl)
+    const hasGeoTarget = targetLat != null && targetLng != null
+
+    if (!hasPayload) {
+      setMachine('ERROR', null, 'No memory data. Open from the map.')
+      return
+    }
+
+    if (!hasGeoTarget) {
+      if (debugEnabled && hasPayload) {
         setMachine('IN_RANGE_STARTING_AR', copyOverlay.starting)
         return
       }
@@ -335,7 +401,15 @@ function ArMemoryXR({ state }: { state: LocationState }) {
       cancelled = true
       navigator.geolocation.clearWatch(watchId)
     }
-  }, [imageUrl, targetLat, targetLng, copyOverlay, debugEnabled])
+  }, [
+    isAudioAr,
+    resolvedAudioUrl,
+    resolvedImageUrl,
+    targetLat,
+    targetLng,
+    copyOverlay,
+    debugEnabled,
+  ])
 
   // XR8 boot + render loop via pipeline module
   useEffect(() => {
@@ -386,6 +460,13 @@ function ArMemoryXR({ state }: { state: LocationState }) {
         if (!arview) return
         arview.style.setProperty('z-index', '2', 'important')
         arview.style.setProperty('pointer-events', 'none', 'important')
+        arview.style.setProperty('opacity', '1', 'important')
+        arview.style.setProperty('visibility', 'visible', 'important')
+        const canvas = document.getElementById('overlayView3d') as HTMLElement | null
+        if (canvas) {
+          canvas.style.setProperty('opacity', '1', 'important')
+          canvas.style.setProperty('visibility', 'visible', 'important')
+        }
       } catch {
         // ignore
       }
@@ -428,11 +509,9 @@ function ArMemoryXR({ state }: { state: LocationState }) {
     }
 
     const sizeCanvasToViewport = (x: any) => {
-      const c = document.getElementById('overlayView3d') as HTMLCanvasElement | null
-      if (!c) {
-        pushDebug('sizeCanvas: #overlayView3d missing')
-        return
-      }
+      // Always ensure DOM before lookup — resize handlers and retries can run before `startXr`
+      // finishes; stale bundles also used to call `XR8.run({})` without mounting `#overlayView3d`.
+      const c = ensureXrViewportDom()
       const dpr = Math.min(window.devicePixelRatio || 1, 2)
       const w = Math.max(1, Math.floor(window.innerWidth * dpr))
       const h = Math.max(1, Math.floor(window.innerHeight * dpr))
@@ -497,7 +576,7 @@ function ArMemoryXR({ state }: { state: LocationState }) {
         pushDebug(`getUserMedia error: ${msg}`)
       }
 
-      let content: Awaited<ReturnType<typeof buildContent>> | null = null
+      let content: XrBuiltContent | null = null
 
       const logicModule = () => ({
         name: 'memoria-state-machine',
@@ -519,9 +598,21 @@ function ArMemoryXR({ state }: { state: LocationState }) {
           }
 
           try {
-            content = await buildContent(xrScene.scene, xrScene.renderer)
+            sphereHandleRef.current?.dispose()
+            sphereHandleRef.current = null
+            audioPlaybackStartedRef.current = false
+            if (isAudioAr) {
+              content = await buildAudioContent(xrScene.scene, xrScene.renderer)
+              sphereHandleRef.current = content.audioHandle ?? null
+            } else {
+              content = await buildContent(xrScene.scene, xrScene.renderer)
+            }
           } catch (e) {
-            setMachine('ERROR', null, e instanceof Error ? e.message : 'Failed to load image')
+            setMachine(
+              'ERROR',
+              null,
+              e instanceof Error ? e.message : isAudioAr ? 'Failed to load audio for AR' : 'Failed to load image'
+            )
             return
           }
 
@@ -555,15 +646,17 @@ function ArMemoryXR({ state }: { state: LocationState }) {
             anchor.visible = true
             anchor.position.copy(locked.avg)
 
-            // Make plane upright and facing camera yaw-ish
             const cam = xrSceneRef.current.camera as any
             const camPos = cam?.position ? (cam.position as THREE.Vector3) : new THREE.Vector3(0, 0, 0)
-            plane.position.set(0, 0.15, 0)
 
-            const look = new THREE.Vector3(camPos.x, locked.avg.y + 0.15, camPos.z)
-            plane.lookAt(look)
-            plane.rotation.x = 0
-            plane.rotation.z = 0
+            // Image memory: billboard toward camera; audio sphere: symmetric — keep factory pose
+            if (!content.audioHandle) {
+              plane.position.set(0, 0.15, 0)
+              const look = new THREE.Vector3(camPos.x, locked.avg.y + 0.15, camPos.z)
+              plane.lookAt(look)
+              plane.rotation.x = 0
+              plane.rotation.z = 0
+            }
 
             const now = Date.now()
             placedRef.current = {
@@ -582,6 +675,13 @@ function ArMemoryXR({ state }: { state: LocationState }) {
           if (cur === 'PLACED') {
             const p = placedRef.current
             if (!p) return
+
+            if (content.audioHandle && !audioPlaybackStartedRef.current) {
+              audioPlaybackStartedRef.current = true
+              void content.audioHandle.startPlayback()
+            }
+            content.audioHandle?.onFrame()
+
             const t = (Date.now() - p.dropAtMs) / 1000
 
             // Drop-in (first 0.6s)
@@ -650,6 +750,11 @@ function ArMemoryXR({ state }: { state: LocationState }) {
           )} Threejs=${Boolean(x.Threejs)} XrController=${Boolean(x.XrController)}`
         )
 
+        const xrCanvas = ensureXrViewportDom()
+        pushDebug(
+          `XR8 bootstrap sdkFix=v2 viewport ok #arview=${Boolean(document.getElementById('arview'))} canvas=${xrCanvas.width}x${xrCanvas.height}`
+        )
+
         sizeCanvasToViewport(x)
 
         if (x.loadChunk) {
@@ -697,9 +802,10 @@ function ArMemoryXR({ state }: { state: LocationState }) {
         }
 
         if (x.run) {
-          pushDebug('XR8.run()')
-          // Let the engine use its default canvas (`#overlayView3d`) under `#arview` on document.body.
-          x.run({})
+          pushDebug('XR8.run(canvasElement, {}) sdkFix=v2')
+          // First argument must be the WebGL canvas; second is session config (`{}` ok).
+          // `XR8.run({})` leaves pipeline without a canvas — `#overlayView3d` never existed.
+          x.run(xrCanvas, {})
           xrRunning = true
           pushDebug('XR8.run() returned')
           try {
@@ -757,11 +863,14 @@ function ArMemoryXR({ state }: { state: LocationState }) {
       window.removeEventListener('orientationchange', handleResize)
       startXrRef.current = null
       if (xrRunning) stopXR()
+      sphereHandleRef.current?.dispose()
+      sphereHandleRef.current = null
+      audioPlaybackStartedRef.current = false
       xrSceneRef.current = null
       placedRef.current = null
       resetHitWindow()
     }
-  }, [ui.state, copyOverlay])
+  }, [ui.state, copyOverlay, isAudioAr, resolvedImageUrl, resolvedAudioUrl, audioLoop])
 
   const overlay = ui.error ? null : ui.overlay
   const showBack = true
@@ -778,17 +887,18 @@ function ArMemoryXR({ state }: { state: LocationState }) {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'transparent' }}>
-      {/* Engine will inject `#arview` and `#overlayView3d` */}
+    <>
+      {/* Engine injects `#arview` + `#overlayView3d` on body; no full-viewport wrapper (WebKit black composite). */}
 
       {overlay ? (
         <div
           style={{
-            position: 'absolute',
+            position: 'fixed',
             left: 16,
             right: 16,
             bottom: 24,
             zIndex: 10,
+            pointerEvents: 'auto',
             background: 'rgba(8,7,6,0.72)',
             border: '1px solid rgba(255,255,255,0.18)',
             borderRadius: 14,
@@ -804,13 +914,14 @@ function ArMemoryXR({ state }: { state: LocationState }) {
       {tapToStart ? (
         <div
           style={{
-            position: 'absolute',
+            position: 'fixed',
             left: 16,
             right: 16,
             bottom: 24,
             zIndex: 12,
             maxWidth: 420,
             margin: '0 auto',
+            pointerEvents: 'auto',
             background: 'rgba(8,7,6,0.82)',
             border: '1px solid rgba(255,255,255,0.18)',
             borderRadius: 14,
@@ -842,11 +953,12 @@ function ArMemoryXR({ state }: { state: LocationState }) {
       {ui.error ? (
         <div
           style={{
-            position: 'absolute',
+            position: 'fixed',
             top: 16,
             left: 16,
             right: 16,
             zIndex: 10,
+            pointerEvents: 'auto',
             background: 'rgba(80, 28, 28, 0.55)',
             border: '1px solid rgba(240, 160, 160, 0.22)',
             borderRadius: 14,
@@ -861,7 +973,17 @@ function ArMemoryXR({ state }: { state: LocationState }) {
       ) : null}
 
       {showBack ? (
-        <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 11, display: 'flex', gap: 8 }}>
+        <div
+          style={{
+            position: 'fixed',
+            top: 12,
+            left: 12,
+            zIndex: 11,
+            display: 'flex',
+            gap: 8,
+            pointerEvents: 'auto'
+          }}
+        >
           <button
             type="button"
             className="mem-btn mem-btn--ghost"
@@ -892,12 +1014,13 @@ function ArMemoryXR({ state }: { state: LocationState }) {
       {debug.enabled ? (
         <div
           style={{
-            position: 'absolute',
+            position: 'fixed',
             top: 12,
             right: 12,
             zIndex: 20,
             width: 320,
             maxWidth: 'calc(100vw - 24px)',
+            pointerEvents: 'auto',
             background: 'rgba(0,0,0,0.72)',
             border: '1px solid rgba(255,255,255,0.16)',
             borderRadius: 12,
@@ -926,7 +1049,7 @@ function ArMemoryXR({ state }: { state: LocationState }) {
           </div>
         </div>
       ) : null}
-    </div>
+    </>
   )
 }
 

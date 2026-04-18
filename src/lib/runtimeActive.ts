@@ -15,6 +15,10 @@ export type ActiveCampaign = {
   slug: string
   tag: string
   pinColor: string
+  /** From `campaigns.campaign_type` */
+  campaignType?: string
+  /** From `campaigns.branding_asset_url` (also merged into `overlays` as bottom-right watermark). */
+  brandingAssetUrl?: string | null
   priority: number
   startsAt: string
   endsAt: string
@@ -41,6 +45,8 @@ export type RuntimeArScene = {
   geoRadiusM: number
   sceneType: string
   scenePayload: Record<string, unknown>
+  /** Optional: when this AR scene is a loot-box for a specific claim campaign. */
+  claimCampaignId?: string | null
   startsAt: string
   endsAt: string
   /** Present when API includes geo hint (user/query point vs scene radius). */
@@ -58,6 +64,8 @@ export type RuntimeClaimCampaign = {
   endsAt: string
   lat: number | null
   lng: number | null
+  /** True when user/query point is inside eligibility.radiusM (when lat/lng present). */
+  inRange?: boolean
 }
 
 export type ActiveRuntimeResponse = {

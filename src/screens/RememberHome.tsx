@@ -1,7 +1,10 @@
 import type { KeyboardEvent } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { usePrivy } from '@privy-io/react-auth'
 import { WalletProfileButton } from '@/components/WalletProfileButton'
+import { TipModal } from '@/components/TipModal'
+import { shouldAutoOpenTip } from '@/lib/tipNudge'
 
 const POETRY_KEEPING_WHOLE_URL = 'https://poetrysociety.org/poetry-in-motion/keeping-things-whole'
 const ILLUST_HOME_URL = 'https://illust.space'
@@ -9,6 +12,11 @@ const ILLUST_HOME_URL = 'https://illust.space'
 export function RememberHome() {
   const navigate = useNavigate()
   const { ready, authenticated, login, logout, user } = usePrivy()
+  const [tipOpen, setTipOpen] = useState(false)
+
+  useEffect(() => {
+    if (shouldAutoOpenTip()) setTipOpen(true)
+  }, [])
 
   const handlePoetryLinkKeyDown = (e: KeyboardEvent<HTMLAnchorElement>) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -32,6 +40,16 @@ export function RememberHome() {
           <span className="mem-brand">Memoria</span>
         </div>
         <div className="mem-header-end">
+          <button
+            type="button"
+            onClick={() => setTipOpen(true)}
+            className="mem-btn mem-btn--ghost"
+            aria-label="Tip the developers"
+            title="Tip the developers"
+            style={{ padding: '8px 10px' }}
+          >
+            ◉
+          </button>
           <button type="button" onClick={() => navigate('/map')} className="mem-btn mem-btn--ghost">
             Map
           </button>
@@ -122,6 +140,7 @@ export function RememberHome() {
           </a>
         </footer>
       </main>
+      <TipModal open={tipOpen} onClose={() => setTipOpen(false)} />
     </div>
   )
 }

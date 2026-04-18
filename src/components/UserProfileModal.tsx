@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { usePrivy, useWallets } from '@privy-io/react-auth'
 import { usePublicClient } from 'wagmi'
 import { formatEther } from 'viem'
 import { pickEthereumSigningWallet } from '@/lib/privyWallet'
 import { walletAvatarBackground } from '@/lib/walletAvatar'
 import type { MemoryPin } from '@/lib/memoryPin'
+import { pinIsAudioMemory } from '@/lib/memoryMedia'
+import { favouriteKey, readFavouriteKeys, toggleFavouriteKey } from '@/lib/memoryFavourites'
 import { loadOptimisticPins } from '@/lib/optimisticPinsStorage'
 import { MemoryPinFull, MemoryPinPeek } from '@/components/MemoryInspect'
 
@@ -28,6 +30,19 @@ export function UserProfileModal({ open, onClose }: Props) {
   const [fullPin, setFullPin] = useState<MemoryPin | null>(null)
   const addr = signingWallet?.address ?? ''
   const myAddress = addr ? (addr as `0x${string}`) : null
+  const favOwnerKey = useMemo(() => (myAddress ? myAddress.toLowerCase() : 'guest'), [myAddress])
+  const [favSet, setFavSet] = useState<Set<string>>(() => new Set())
+
+  useEffect(() => {
+    setFavSet(readFavouriteKeys(favOwnerKey))
+  }, [favOwnerKey, open])
+
+  const handleToggleFavouriteFor = useCallback(
+    (pin: MemoryPin) => {
+      setFavSet(toggleFavouriteKey(favOwnerKey, pin))
+    },
+    [favOwnerKey]
+  )
 
   useEffect(() => {
     if (!open || !publicClient || !wallets?.length) return
@@ -160,6 +175,20 @@ export function UserProfileModal({ open, onClose }: Props) {
                   >
                     {m.imageUrl ? (
                       <img src={m.imageUrl} alt="" className="mem-profile-memory-thumb" decoding="async" />
+                    ) : pinIsAudioMemory(m) ? (
+                      <div
+                        className="mem-profile-memory-thumb mem-profile-memory-thumb--audio"
+                        aria-hidden
+                        style={{
+                          display: 'grid',
+                          placeItems: 'center',
+                          fontSize: 22,
+                          background: 'linear-gradient(145deg, rgba(12, 55, 68, 0.9), rgba(8, 10, 14, 0.95))',
+                          boxShadow: 'inset 0 0 0 1px rgba(34, 211, 238, 0.35)',
+                        }}
+                      >
+                        ♪
+                      </div>
                     ) : null}
                     <span className="mem-profile-memory-title">{m.title || 'Memory'}</span>
                   </button>
@@ -178,6 +207,8 @@ export function UserProfileModal({ open, onClose }: Props) {
               myAddress={myAddress}
               onClose={() => setPeekPin(null)}
               onOpenDetail={() => setFullPin(peekPin)}
+              isFavourite={favSet.has(favouriteKey(peekPin))}
+              onToggleFavourite={() => handleToggleFavouriteFor(peekPin)}
             />
           </div>
         </div>
@@ -190,6 +221,8 @@ export function UserProfileModal({ open, onClose }: Props) {
             setFullPin(null)
             setPeekPin(null)
           }}
+          isFavourite={favSet.has(favouriteKey(fullPin))}
+          onToggleFavourite={() => handleToggleFavouriteFor(fullPin)}
         />
       ) : null}
     </>

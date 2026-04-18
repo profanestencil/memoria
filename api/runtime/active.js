@@ -73,23 +73,40 @@ export default async function handler(req, res) {
       }
       if (!geoMatch) continue
 
+      const overlayList = (overlays ?? []).map((o) => ({
+        id: o.id,
+        overlayType: o.overlay_type,
+        assetUrl: o.asset_url,
+        position: o.position,
+        opacity: Number(o.opacity),
+        scale: Number(o.scale),
+      }))
+
+      const brandingUrl =
+        typeof c.branding_asset_url === 'string' && c.branding_asset_url.trim() ? c.branding_asset_url.trim() : ''
+      if (brandingUrl) {
+        overlayList.push({
+          id: 'branding',
+          overlayType: 'image',
+          assetUrl: brandingUrl,
+          position: 'bottom_right',
+          opacity: 0.92,
+          scale: 0.2,
+        })
+      }
+
       campaignsOut.push({
         id: c.id,
         name: c.name,
         slug: c.slug,
         tag: c.tag,
         pinColor: c.pin_color,
+        campaignType: c.campaign_type ?? 'other',
+        brandingAssetUrl: brandingUrl || null,
         priority: c.priority,
         startsAt: c.starts_at,
         endsAt: c.ends_at,
-        overlays: (overlays ?? []).map((o) => ({
-          id: o.id,
-          overlayType: o.overlay_type,
-          assetUrl: o.asset_url,
-          position: o.position,
-          opacity: Number(o.opacity),
-          scale: Number(o.scale),
-        })),
+        overlays: overlayList,
       })
     }
 
@@ -132,6 +149,10 @@ export default async function handler(req, res) {
       geoRadiusM: s.geo_radius_m,
       sceneType: s.scene_type,
       scenePayload: s.scene_payload ?? {},
+      claimCampaignId:
+        s.scene_payload && typeof s.scene_payload === 'object' && typeof s.scene_payload.claimCampaignId === 'string'
+          ? s.scene_payload.claimCampaignId
+          : null,
       startsAt: s.starts_at,
       endsAt: s.ends_at,
       inRange: inCircle(lat, lng, s.lat, s.lng, s.geo_radius_m),
@@ -146,18 +167,35 @@ export default async function handler(req, res) {
 
     if (clErr) throw clErr
 
-    const claimCampaigns = (claimRows ?? []).map((x) => ({
-      id: x.id,
-      name: x.name,
-      enforcement: x.enforcement,
-      eligibility: x.eligibility ?? {},
-      rewardType: x.reward_type,
-      rewardPayload: x.reward_payload ?? {},
-      startsAt: x.starts_at,
-      endsAt: x.ends_at,
-      lat: x.lat != null ? Number(x.lat) : null,
-      lng: x.lng != null ? Number(x.lng) : null,
-    }))
+    const claimCampaigns = (claimRows ?? []).map((x) => {
+      const clat = x.lat != null ? Number(x.lat) : null
+      const clng = x.lng != null ? Number(x.lng) : null
+      const elig = x.eligibility && typeof x.eligibility === 'object' ? x.eligibility : {}
+      const radiusM = elig.radiusM != null ? Number(elig.radiusM) : 150
+      const inRange =
+        clat != null &&
+        clng != null &&
+        Number.isFinite(clat) &&
+        Number.isFinite(clng) &&
+        Number.isFinite(radiusM) &&
+        radiusM > 0
+          ? inCircle(lat, lng, clat, clng, radiusM)
+          : true
+
+      return {
+        id: x.id,
+        name: x.name,
+        enforcement: x.enforcement,
+        eligibility: x.eligibility ?? {},
+        rewardType: x.reward_type,
+        rewardPayload: x.reward_payload ?? {},
+        startsAt: x.starts_at,
+        endsAt: x.ends_at,
+        lat: x.lat != null ? Number(x.lat) : null,
+        lng: x.lng != null ? Number(x.lng) : null,
+        inRange,
+      }
+    })
 
     res.status(200).json({
       ok: true,

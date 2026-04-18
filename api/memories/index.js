@@ -15,6 +15,13 @@ const clampBBox = (q) => {
   return { latMin, latMax, lngMin, lngMax }
 }
 
+const isDraftExpired = (d, nowSec) => {
+  const exp = d?.draftExpiresAt
+  if (exp == null) return false
+  const n = Number(exp)
+  return Number.isFinite(n) ? n <= nowSec : false
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   if (req.method === 'OPTIONS') {
@@ -32,7 +39,12 @@ export default async function handler(req, res) {
     const user = typeof req.query.user === 'string' ? req.query.user.toLowerCase() : null
     const bbox = clampBBox(req.query)
 
-    let items = store.memories
+    const nowSec = Math.floor(Date.now() / 1000)
+    const draftsRaw = Array.isArray(store.drafts) ? store.drafts : []
+    const drafts = draftsRaw.filter((d) => !isDraftExpired(d, nowSec))
+
+    const minted = Array.isArray(store.memories) ? store.memories : []
+    let items = [...drafts, ...minted]
 
     if (user) {
       items = items.filter((m) => m.creatorLower === user)

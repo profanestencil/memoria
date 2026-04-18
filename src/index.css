@@ -42,10 +42,21 @@ body,
 
 body {
   overflow: hidden;
+  /* Global: avoid double-tap zoom on buttons. Map host uses touch-action: none so Mapbox can pan/pinch. */
   touch-action: manipulation;
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
     env(safe-area-inset-left);
   position: relative;
+}
+
+/* body is overflow:hidden; admin is a tall form — scroll inside this shell only */
+.mem-admin-page {
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Camera screen layout helpers (safe-area + dynamic viewport) */
@@ -231,13 +242,51 @@ body::before {
 }
 
 /*
- * 8th Wall engine-binary mounts #arview on document.body with inline z-index:-1.
- * #root is z-index:1, so the camera layer stays fully behind the SPA until we raise it.
- * Author !important beats the engine's inline z-index (no !important).
+ * 8th Wall: #arview (camera + WebGL) is a body sibling under #root. We keep #root above #arview
+ * so UI can sit on top; the root fill must stay transparent (no fullscreen opaque layer on /ar).
+ * WebKit often composites a TRANSPARENT fullscreen div above video/canvas as solid black — so
+ * AR.tsx does not wrap the route in a full-viewport div, and we use #root pointer-events:none
+ * with pointer-events:auto only on chrome (see inline styles on AR overlays).
  */
+html.mem-ar-stack {
+  background-color: transparent !important;
+}
+
+html.mem-ar-stack body {
+  background-color: transparent !important;
+}
+
+html.mem-ar-stack body::before {
+  display: none !important;
+}
+
 html.mem-ar-stack #arview {
   z-index: 2 !important;
   pointer-events: none !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+html.mem-ar-stack #overlayView3d {
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+html.mem-ar-stack #root {
+  position: relative;
+  z-index: 3;
+  background: transparent !important;
+  pointer-events: none;
+}
+
+html.mem-ar-stack #root button,
+html.mem-ar-stack #root a,
+html.mem-ar-stack #root input,
+html.mem-ar-stack #root textarea,
+html.mem-ar-stack #root select,
+html.mem-ar-stack #root [role='button'],
+html.mem-ar-stack #root [role='checkbox'] {
+  pointer-events: auto;
 }
 
 button {
@@ -1025,6 +1074,32 @@ textarea:focus-visible {
   line-height: 1;
 }
 
+.mem-memory-peek__fav {
+  position: absolute;
+  top: 8px;
+  right: 42px;
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 248, 235, 0.25);
+  background: rgba(8, 7, 6, 0.85);
+  color: var(--mem-accent-bright);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.mem-memory-peek__fav--on {
+  color: #ffb84d;
+  border-color: rgba(255, 184, 77, 0.45);
+  box-shadow: 0 0 0 1px rgba(255, 184, 77, 0.2);
+}
+
 .mem-memory-peek__close {
   position: absolute;
   top: 8px;
@@ -1059,6 +1134,74 @@ textarea:focus-visible {
 
 .mem-memory-peek__thumb--placeholder {
   background: linear-gradient(145deg, rgba(107, 83, 68, 0.5), rgba(40, 34, 28, 0.9));
+}
+
+.mem-memory-peek__audio-block {
+  padding: 12px 14px 14px;
+  background: linear-gradient(160deg, rgba(15, 65, 75, 0.35), rgba(10, 12, 18, 0.95));
+  border-bottom: 1px solid rgba(34, 211, 238, 0.2);
+}
+
+.mem-memory-peek__audio-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: rgba(165, 243, 252, 0.95);
+  margin-bottom: 8px;
+}
+
+.mem-memory-audio-wrap {
+  width: 100%;
+}
+
+.mem-memory-audio {
+  display: block;
+  width: 100%;
+  height: 36px;
+  margin: 0;
+}
+
+.mem-memory-audio-error {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(248, 180, 160, 0.95);
+}
+
+.mem-memory-full__audio-hero {
+  padding: 20px max(20px, env(safe-area-inset-right)) 24px max(20px, env(safe-area-inset-left));
+  background: linear-gradient(165deg, rgba(12, 55, 68, 0.4), rgba(8, 9, 12, 0.98));
+  border-bottom: 1px solid rgba(34, 211, 238, 0.22);
+}
+
+.mem-memory-full__audio-hero-label {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(165, 243, 252, 0.95);
+}
+
+.mem-memory-full__audio-hero .mem-memory-audio {
+  height: 48px;
+}
+
+.mem-memory-full__ar-actions {
+  margin-top: 14px;
+  padding-top: 4px;
+}
+
+.mem-memory-full__hero > .mem-memory-full__ar-actions {
+  margin-top: 0;
+  padding: 12px max(16px, env(safe-area-inset-right)) 16px max(16px, env(safe-area-inset-left));
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.mem-memory-full__ar-error {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: rgba(248, 113, 113, 0.95);
 }
 
 .mem-memory-peek__title {
@@ -1117,6 +1260,31 @@ textarea:focus-visible {
   border-left: 1px solid var(--mem-border);
   border-right: 1px solid var(--mem-border);
   box-sizing: border-box;
+}
+
+.mem-memory-full__fav {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  right: calc(max(12px, env(safe-area-inset-right)) + 48px);
+  z-index: 2;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  border: 1px solid var(--mem-border);
+  background: rgba(8, 7, 6, 0.9);
+  color: var(--mem-accent-bright);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.mem-memory-full__fav--on {
+  color: #ffb84d;
+  border-color: rgba(255, 184, 77, 0.45);
 }
 
 .mem-memory-full__close {

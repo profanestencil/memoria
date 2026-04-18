@@ -6,6 +6,8 @@ import { useWallets } from '@privy-io/react-auth'
 import { pickEthereumSigningWallet } from '@/lib/privyWallet'
 import { getMapboxClientTokenState } from '@/lib/mapboxClientToken'
 import type { MemoryPin } from '@/lib/memoryPin'
+import { favouriteKey, readFavouriteKeys, toggleFavouriteKey } from '@/lib/memoryFavourites'
+import { pinIsAudioMemory } from '@/lib/memoryMedia'
 import { loadOptimisticPins } from '@/lib/optimisticPinsStorage'
 import { MemoryPinFull, MemoryPinPeek } from '@/components/MemoryInspect'
 import {
@@ -80,7 +82,13 @@ export function MemoriesMapCanvas({
   const [runtime, setRuntime] = useState<ActiveRuntimeResponse | null>(null)
   const [runtimeAnchor, setRuntimeAnchor] = useState<{ lat: number; lng: number } | null>(null)
   const [claimTip, setClaimTip] = useState<RuntimeClaimCampaign | null>(null)
+  const [visibilityEpoch, setVisibilityEpoch] = useState(0)
+  const [showOnlyFavourites, setShowOnlyFavourites] = useState(false)
+  const [favSet, setFavSet] = useState<Set<string>>(() => new Set())
   const lastRuntimeGridKey = useRef('')
+  const publicFetchIdRef = useRef(0)
+  const publicLoadDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const myFetchIdRef = useRef(0)
   const indexerConfigHint = indexerUrlLooksBrokenInProd()
   const indexerBanner = indexerConfigHint ?? indexerFetchHint
   const { wallets } = useWallets()
@@ -89,8 +97,31 @@ export function MemoriesMapCanvas({
     () => (signingWallet?.address ? (signingWallet.address as `0x${string}`) : null),
     [signingWallet?.address]
   )
+  const favOwnerKey = useMemo(() => (myAddress ? myAddress.toLowerCase() : 'guest'), [myAddress])
+
+  useEffect(() => {
+    setFavSet(readFavouriteKeys(favOwnerKey))
+  }, [favOwnerKey])
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState !== 'visible') return
+      lastRuntimeGridKey.current = ''
+      setVisibilityEpoch((n) => n + 1)
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => document.removeEventListener('visibilitychange', onVis)
+  }, [])
+
+  const handleToggleFavouriteForPin = useCallback(
+    (pin: MemoryPin) => {
+      setFavSet(toggleFavouriteKey(favOwnerKey, pin))
+    },
+    [favOwnerKey]
+  )
 
   const fetchMyMemories = useCallback(async () => {
+    const id = ++myFetchIdRef.current
     if (!myAddress) {
       setMyMemories([])
       return
@@ -99,14 +130,17 @@ export function MemoriesMapCanvas({
     u.searchParams.set('user', myAddress)
     try {
       const r = await fetch(u.toString())
+      if (id !== myFetchIdRef.current) return
       if (!r.ok) {
         setIndexerFetchHint(`Indexer error ${r.status} loading your pins (${u.origin}).`)
         setMyMemories([])
         return
       }
       const j = (await r.json()) as { memories?: MemoryPin[] }
+      if (id !== myFetchIdRef.current) return
       setMyMemories(j.memories ?? [])
     } catch {
+      if (id !== myFetchIdRef.current) return
       setMyMemories([])
       setIndexerFetchHint(
         `Could not reach indexer at ${indexerUrl}. Is it running with CORS and a public URL?`
@@ -229,6 +263,8 @@ export function MemoriesMapCanvas({
       center: [-98, 39],
       zoom: 3,
       attributionControl: true,
+      /** Low-end Android GPUs: cheaper compositing, fewer stalls */
+      antialias: false,
     })
     mapRef.current = map
     onMapReadyRef.current?.(map)
@@ -250,13 +286,18 @@ export function MemoriesMapCanvas({
       map.once('load', finishInit)
     }
 
-    const handleWindowResize = () => {
+    const handleResize = () => {
       map.resize()
     }
-    window.addEventListener('resize', handleWindowResize)
+    window.addEventListener('resize', handleResize)
+    const vv = window.visualViewport
+    vv?.addEventListener('resize', handleResize)
+    vv?.addEventListener('scroll', handleResize)
 
     return () => {
-      window.removeEventListener('resize', handleWindowResize)
+      window.removeEventListener('resize', handleResize)
+      vv?.removeEventListener('resize', handleResize)
+      vv?.removeEventListener('scroll', handleResize)
       map.off('error', handleMapError)
       setMapReady(false)
       markersRef.current.forEach((m) => m.remove())
@@ -280,6 +321,7 @@ export function MemoriesMapCanvas({
     if (!map || !mapReady) return
 
     const loadPublicInView = async () => {
+      const id = ++publicFetchIdRef.current
       if (!mapRef.current) return
       const b = mapRef.current.getBounds()
       const u = new URL('/memories', indexerUrl)
@@ -289,15 +331,18 @@ export function MemoriesMapCanvas({
       u.searchParams.set('lngMax', String(b?.getEast?.() ?? 180))
       try {
         const res = await fetch(u.toString())
+        if (id !== publicFetchIdRef.current) return
         if (!res.ok) {
           setIndexerFetchHint(`Indexer error ${res.status} for public pins (${u.origin}).`)
           setPublicMemories([])
           return
         }
         const j: { memories?: MemoryPin[] } = await res.json()
+        if (id !== publicFetchIdRef.current) return
         setPublicMemories(j.memories ?? [])
         setIndexerFetchHint(null)
       } catch {
+        if (id !== publicFetchIdRef.current) return
         setPublicMemories([])
         setIndexerFetchHint(
           `Could not reach indexer at ${indexerUrl}. Is it running with CORS and a public URL?`
@@ -305,15 +350,26 @@ export function MemoriesMapCanvas({
       }
     }
 
-    void loadPublicInView()
-    const handleIdle = () => void loadPublicInView()
-    map.on('moveend', loadPublicInView)
-    map.on('idle', handleIdle)
-    return () => {
-      map.off('moveend', loadPublicInView)
-      map.off('idle', handleIdle)
+    const schedulePublicLoad = () => {
+      if (publicLoadDebounceRef.current) clearTimeout(publicLoadDebounceRef.current)
+      publicLoadDebounceRef.current = setTimeout(() => {
+        publicLoadDebounceRef.current = null
+        void loadPublicInView()
+      }, 180)
     }
-  }, [mapReady, indexerUrl, refreshEpoch])
+
+    void loadPublicInView()
+    map.on('moveend', schedulePublicLoad)
+    map.on('idle', schedulePublicLoad)
+    return () => {
+      if (publicLoadDebounceRef.current) {
+        clearTimeout(publicLoadDebounceRef.current)
+        publicLoadDebounceRef.current = null
+      }
+      map.off('moveend', schedulePublicLoad)
+      map.off('idle', schedulePublicLoad)
+    }
+  }, [mapReady, indexerUrl, refreshEpoch, visibilityEpoch])
 
   useEffect(() => {
     if (!mapReady) return
@@ -338,7 +394,7 @@ export function MemoriesMapCanvas({
 
   useEffect(() => {
     if (!runtimeAnchor) return
-    const gridKey = `${runtimeAnchor.lat.toFixed(2)}_${runtimeAnchor.lng.toFixed(2)}_${refreshEpoch}`
+    const gridKey = `${runtimeAnchor.lat.toFixed(2)}_${runtimeAnchor.lng.toFixed(2)}_${refreshEpoch}_${visibilityEpoch}`
     if (gridKey === lastRuntimeGridKey.current) return
     lastRuntimeGridKey.current = gridKey
     let cancelled = false
@@ -565,7 +621,10 @@ export function MemoriesMapCanvas({
     markersRef.current.forEach((m) => m.remove())
     markersRef.current = []
 
-    const all = [...publicMemories, ...myMemories]
+    const merged = [...publicMemories, ...myMemories]
+    const all = showOnlyFavourites
+      ? merged.filter((m) => favSet.has(favouriteKey(m)))
+      : merged
     const seen = new Set<string>()
 
     for (const mem of all) {
@@ -574,29 +633,54 @@ export function MemoriesMapCanvas({
       seen.add(key)
 
       const isMine = myAddress ? mem.creator.toLowerCase() === myAddress.toLowerCase() : false
+      const isAudio = pinIsAudioMemory(mem)
       const showAsPoi = mem.isPublic || isMine
-      const size = showAsPoi && mem.imageUrl ? (isMine ? 40 : 36) : isMine ? 34 : 28
+      const size =
+        showAsPoi && mem.imageUrl
+          ? isMine
+            ? 40
+            : 36
+          : isAudio
+            ? isMine
+              ? 40
+              : 36
+            : isMine
+              ? 34
+              : 28
       const hex = mem.pinColor && /^#[0-9a-fA-F]{6}$/i.test(mem.pinColor) ? mem.pinColor : null
+      const audioGlow =
+        '0 0 0 4px rgba(34, 211, 238, 0.45), 0 0 18px rgba(34, 211, 238, 0.42), 0 0 32px rgba(6, 182, 212, 0.25)'
 
       const el = document.createElement('button')
       el.type = 'button'
       el.className = 'memory-marker-el'
-      el.setAttribute('aria-label', mem.title || 'Memory pin')
+      el.setAttribute('aria-label', isAudio ? `Audio memory: ${mem.title || 'Memory'}` : mem.title || 'Memory pin')
       el.style.width = `${size}px`
       el.style.height = `${size}px`
       el.style.borderRadius = '50%'
       el.style.cursor = 'pointer'
       el.style.padding = '0'
-      el.style.border = hex ? `2px solid ${hex}` : '2px solid rgba(255,248,235,0.92)'
-      el.style.boxShadow = hex
-        ? `0 0 0 5px ${hex}44`
-        : isMine
-          ? '0 0 0 6px rgba(201, 162, 39, 0.22)'
-          : '0 0 0 5px rgba(107, 83, 68, 0.2)'
+      if (isAudio) {
+        el.style.border = hex ? `2px solid ${hex}` : '2px solid rgba(103, 232, 249, 0.95)'
+        el.style.boxShadow = hex ? `0 0 0 4px ${hex}55, 0 0 16px rgba(34, 211, 238, 0.35)` : audioGlow
+        el.style.background = hex ? `${hex}44` : 'linear-gradient(145deg, rgba(8, 51, 68, 0.95), rgba(12, 20, 28, 0.98))'
+        el.style.color = 'rgba(165, 243, 252, 0.98)'
+        el.style.fontSize = `${Math.round(size * 0.42)}px`
+        el.style.lineHeight = `${size}px`
+        el.style.textAlign = 'center'
+        el.textContent = '♪'
+      } else {
+        el.style.border = hex ? `2px solid ${hex}` : '2px solid rgba(255,248,235,0.92)'
+        el.style.boxShadow = hex
+          ? `0 0 0 5px ${hex}44`
+          : isMine
+            ? '0 0 0 6px rgba(201, 162, 39, 0.22)'
+            : '0 0 0 5px rgba(107, 83, 68, 0.2)'
+        el.style.background =
+          showAsPoi && mem.imageUrl ? (hex ? `${hex}33` : '#1a1714') : hex ?? (isMine ? '#c9a227' : '#6b5344')
+      }
       el.style.overflow = 'hidden'
-      el.style.background =
-        showAsPoi && mem.imageUrl ? (hex ? `${hex}33` : '#1a1714') : hex ?? (isMine ? '#c9a227' : '#6b5344')
-      if (showAsPoi && mem.imageUrl) {
+      if (showAsPoi && mem.imageUrl && !isAudio) {
         const img = document.createElement('img')
         img.src = mem.imageUrl
         img.alt = ''
@@ -618,7 +702,25 @@ export function MemoriesMapCanvas({
       const marker = new mapboxgl.Marker({ element: el }).setLngLat([mem.longitude, mem.latitude]).addTo(map)
       markersRef.current.push(marker)
     }
-  }, [mapReady, publicMemories, myMemories, myAddress])
+  }, [mapReady, publicMemories, myMemories, myAddress, showOnlyFavourites, favSet])
+
+  const dedupedPinsForUi = useMemo(() => {
+    const seen = new Set<string>()
+    const out: MemoryPin[] = []
+    for (const m of [...publicMemories, ...myMemories]) {
+      const k = favouriteKey(m)
+      if (seen.has(k)) continue
+      seen.add(k)
+      out.push(m)
+    }
+    return out
+  }, [publicMemories, myMemories])
+
+  const allPinsCount = dedupedPinsForUi.length
+  const filteredPinsCount = useMemo(() => {
+    if (!showOnlyFavourites) return dedupedPinsForUi.length
+    return dedupedPinsForUi.filter((m) => favSet.has(favouriteKey(m))).length
+  }, [dedupedPinsForUi, showOnlyFavourites, favSet])
 
   if (!mapboxTokenState.ok) {
     return (
@@ -694,6 +796,47 @@ export function MemoriesMapCanvas({
           </button>
         </div>
       ) : null}
+      <div
+        style={{
+          position: 'absolute',
+          left: 12,
+          bottom: showGeoPrompt ? 200 : 88,
+          zIndex: 6,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 6,
+          alignItems: 'flex-start',
+          maxWidth: 'min(280px, calc(100vw - 24px))',
+          pointerEvents: 'auto',
+        }}
+      >
+        <button
+          type="button"
+          className={`mem-btn mem-btn--secondary${showOnlyFavourites ? ' mem-seg__btn--active' : ''}`}
+          aria-pressed={showOnlyFavourites}
+          onClick={() => setShowOnlyFavourites((v) => !v)}
+          style={{ fontSize: 13, padding: '8px 12px' }}
+        >
+          {showOnlyFavourites ? '★ Saved only' : '☆ All pins'}
+        </button>
+        {showOnlyFavourites && allPinsCount > 0 && filteredPinsCount === 0 ? (
+          <p
+            role="status"
+            style={{
+              margin: 0,
+              padding: '8px 10px',
+              borderRadius: 8,
+              background: 'rgba(12,10,8,0.92)',
+              border: '1px solid var(--mem-border, rgba(255,248,235,0.12))',
+              fontSize: 12,
+              lineHeight: 1.4,
+              color: 'var(--mem-text-muted)',
+            }}
+          >
+            {'No saved memories in view. Pan the map or turn off "Saved only".'}
+          </p>
+        ) : null}
+      </div>
       {indexerBanner ? (
         <div
           role="status"
@@ -717,7 +860,11 @@ export function MemoriesMapCanvas({
           {indexerBanner}
         </div>
       ) : null}
-      <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
+      <div
+        ref={containerRef}
+        className="mem-mapbox-host"
+        style={{ position: 'absolute', inset: 0, touchAction: 'none' }}
+      />
       {selectedPin && !detailPin ? (
         <div
           className="mem-memory-peek-anchor"
@@ -729,6 +876,8 @@ export function MemoriesMapCanvas({
             myAddress={myAddress}
             onClose={() => setSelectedPin(null)}
             onOpenDetail={() => setDetailPin(selectedPin)}
+            isFavourite={favSet.has(favouriteKey(selectedPin))}
+            onToggleFavourite={() => handleToggleFavouriteForPin(selectedPin)}
           />
         </div>
       ) : null}
@@ -740,6 +889,8 @@ export function MemoriesMapCanvas({
             setDetailPin(null)
             setSelectedPin(null)
           }}
+          isFavourite={favSet.has(favouriteKey(detailPin))}
+          onToggleFavourite={() => handleToggleFavouriteForPin(detailPin)}
         />
       ) : null}
       {showGeoPrompt ? (

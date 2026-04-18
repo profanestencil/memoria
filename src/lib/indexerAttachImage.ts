@@ -10,17 +10,34 @@ class IndexerClientError extends Error {
   }
 }
 
-/** Attach cover image to a registry memory (creator must match on-chain). Retries while indexer catches up. */
+/** Attach cover image and/or audio to a registry memory (creator must match on-chain). Retries while indexer catches up. */
 export const attachMemoryCoverImage = async (input: {
   memoryId: string
   creator: `0x${string}`
-  imageUrl: string
+  imageUrl?: string
+  audioUrl?: string
+  mediaKind?: 'image' | 'audio'
+  audioLoop?: boolean
   campaignTag?: string
   campaignId?: string
   pinColor?: string
   maxAttempts?: number
 }): Promise<void> => {
-  const { memoryId, creator, imageUrl, campaignTag, campaignId, pinColor, maxAttempts = 12 } = input
+  const {
+    memoryId,
+    creator,
+    imageUrl,
+    audioUrl,
+    mediaKind,
+    audioLoop,
+    campaignTag,
+    campaignId,
+    pinColor,
+    maxAttempts = 12,
+  } = input
+  if (!imageUrl && !audioUrl) {
+    throw new Error('attachMemoryCoverImage: pass imageUrl and/or audioUrl')
+  }
   const url = new URL(`/memories/${encodeURIComponent(memoryId)}/image`, indexerUrl).toString()
   let lastErr: string | undefined
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -29,8 +46,11 @@ export const attachMemoryCoverImage = async (input: {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          imageUrl,
           creator,
+          ...(imageUrl != null && imageUrl !== '' ? { imageUrl } : {}),
+          ...(audioUrl != null && audioUrl !== '' ? { audioUrl } : {}),
+          ...(mediaKind != null ? { mediaKind } : {}),
+          ...(audioLoop != null ? { audioLoop } : {}),
           ...(campaignTag != null ? { campaignTag } : {}),
           ...(campaignId != null ? { campaignId } : {}),
           ...(pinColor != null ? { pinColor } : {}),

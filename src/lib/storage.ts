@@ -106,13 +106,14 @@ export interface MemoryMetadata {
   attributes: { trait_type: string; value: string | number }[]
 }
 
-export async function uploadImage(blob: Blob): Promise<string> {
+/** Upload arbitrary media (image/jpeg, audio/webm, audio/mpeg, …) to IPFS; returns `ipfs://…`. */
+export async function uploadMediaBlob(blob: Blob, filename: string): Promise<string> {
   if (pinataJwtConfigured) {
-    return pinataUploadFileV3(blob, 'memory.jpg')
+    return pinataUploadFileV3(blob, filename)
   }
   if (pinataLegacyConfigured) {
     const form = new FormData()
-    form.append('file', blob, 'memory.jpg')
+    form.append('file', blob, filename)
     const res = await fetch('https://api.pinata.cloud/pinning/pinFileToIPFS', {
       method: 'POST',
       headers: pinataLegacyHeaders(false),
@@ -136,7 +137,7 @@ export async function uploadImage(blob: Blob): Promise<string> {
   validateNftStorageKey(NFT_STORAGE_KEY)
 
   const form = new FormData()
-  form.append('file', blob, 'memory.jpg')
+  form.append('file', blob, filename)
   const res = await fetch('https://api.nft.storage/upload', {
     method: 'POST',
     headers: { Authorization: `Bearer ${NFT_STORAGE_KEY}` },
@@ -157,6 +158,10 @@ export async function uploadImage(blob: Blob): Promise<string> {
   const cid = data.value?.cid ?? data.cid
   if (!cid) throw new Error('No CID in response')
   return `ipfs://${cid}`
+}
+
+export async function uploadImage(blob: Blob): Promise<string> {
+  return uploadMediaBlob(blob, 'memory.jpg')
 }
 
 export async function uploadMetadata(metadata: MemoryMetadata): Promise<string> {
@@ -214,9 +219,14 @@ export async function uploadMetadata(metadata: MemoryMetadata): Promise<string> 
 
 export function ipfsToHttp(ipfsUri: string): string {
   if (!ipfsUri.startsWith('ipfs://')) return ipfsUri
-  const cid = ipfsUri.slice(7)
+  const cid = ipfsUri.slice(7).replace(/^\/+/, '')
+  const gatewayBase = import.meta.env.VITE_IPFS_HTTP_GATEWAY?.toString().trim().replace(/\/$/, '')
+  if (gatewayBase) {
+    return `${gatewayBase}/ipfs/${cid}`
+  }
   if (pinataConfigured) {
     return `https://gateway.pinata.cloud/ipfs/${cid}`
   }
-  return `https://nftstorage.link/ipfs/${cid}`
+  /** Public gateway; nftstorage.link often flaky for anonymous reads — override with VITE_IPFS_HTTP_GATEWAY */
+  return `https://dweb.link/ipfs/${cid}`
 }

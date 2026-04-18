@@ -58,6 +58,8 @@ export default async function handler(req, res) {
         ends_at: endsAt,
         tag = '',
         pin_color: pinColor = '#C9A227',
+        campaign_type: campaignType = 'other',
+        branding_asset_url: brandingAssetUrl = null,
         priority = 0,
         is_active: isActive = true,
         geofences = [],
@@ -128,6 +130,15 @@ export default async function handler(req, res) {
         ...(patch.ends_at != null ? { ends_at: patch.ends_at } : {}),
         ...(patch.tag != null ? { tag: patch.tag } : {}),
         ...(patch.pin_color != null ? { pin_color: patch.pin_color } : {}),
+        ...(patch.campaign_type != null ? { campaign_type: patch.campaign_type } : {}),
+        ...(patch.branding_asset_url !== undefined
+          ? {
+              branding_asset_url:
+                patch.branding_asset_url == null || patch.branding_asset_url === ''
+                  ? null
+                  : String(patch.branding_asset_url).trim(),
+            }
+          : {}),
         ...(patch.priority != null ? { priority: patch.priority } : {}),
         ...(patch.is_active != null ? { is_active: patch.is_active } : {}),
         updated_at: new Date().toISOString(),

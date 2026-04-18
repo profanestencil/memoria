@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { usePrivy, useWallets } from '@privy-io/react-auth'
-import { createWalletClient, custom, type Address } from 'viem'
+import { formatUnits } from 'viem'
 import { pickEthereumSigningWallet } from '@/lib/privyWallet'
 import { getCurrentPosition } from '@/lib/geo'
 import { fetchRuntimeActive, type RuntimeClaimCampaign } from '@/lib/runtimeActive'
-import { buildRuntimeClaimMessage, submitRuntimeClaim } from '@/lib/claims'
+import { runClaim } from '@/lib/claimFlow'
 
 export const RuntimeClaimsPanel = () => {
   const { authenticated, login, ready } = usePrivy()
@@ -19,7 +19,7 @@ export const RuntimeClaimsPanel = () => {
     try {
       const c = await getCurrentPosition()
       const r = await fetchRuntimeActive(c.latitude, c.longitude)
-      setCampaigns(r.claimCampaigns ?? [])
+      setCampaigns((r.claimCampaigns ?? []).filter((x) => x.inRange !== false))
     } catch {
       setCampaigns([])
     }
@@ -44,28 +44,10 @@ export const RuntimeClaimsPanel = () => {
     setBusyId(camp.id)
     setMessage(null)
     try {
-      const msg = buildRuntimeClaimMessage(camp.id, wallet)
-      const provider = await signingWallet.getEthereumProvider()
-      const client = createWalletClient({ transport: custom(provider) })
-      const signature = await client.signMessage({
-        account: wallet as Address,
-        message: msg,
-      })
-      let lat: number | undefined
-      let lng: number | undefined
-      const elig = camp.eligibility ?? {}
-      if (elig.mode === 'in_campaign') {
-        const c = await getCurrentPosition()
-        lat = c.latitude
-        lng = c.longitude
-      }
-      const res = await submitRuntimeClaim({
+      const res = await runClaim({
         claimCampaignId: camp.id,
         wallet,
-        message: msg,
-        signature,
-        lat,
-        lng,
+        getEthereumProvider: () => signingWallet.getEthereumProvider!(),
       })
       if (!res.ok) {
         setMessage(res.error ?? 'Claim failed')
@@ -122,11 +104,25 @@ export const RuntimeClaimsPanel = () => {
             overflow: 'auto',
           }}
         >
-          {campaigns.map((c) => (
+          {campaigns.map((c) => {
+            const rp = c.rewardPayload ?? {}
+            const sym = typeof rp.tokenSymbol === 'string' ? rp.tokenSymbol : null
+            const dec = typeof rp.tokenDecimals === 'number' ? rp.tokenDecimals : null
+            const perRaw = typeof rp.perUserAmountRaw === 'string' ? rp.perUserAmountRaw : null
+            let amountLine: string | null = null
+            if (sym && dec != null && perRaw) {
+              try {
+                amountLine = `${formatUnits(BigInt(perRaw), dec)} ${sym} per wallet`
+              } catch {
+                amountLine = null
+              }
+            }
+            return (
             <div key={c.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: 10 }}>
               <div style={{ fontWeight: 600, color: '#f5f0e8', fontSize: 14 }}>{c.name}</div>
               <div style={{ fontSize: 12, color: 'rgba(255,248,235,0.65)', marginTop: 4 }}>
                 {c.enforcement} · {c.rewardType}
+                {amountLine ? ` · ${amountLine}` : ''}
               </div>
               <button
                 type="button"
@@ -138,7 +134,8 @@ export const RuntimeClaimsPanel = () => {
                 {busyId === c.id ? 'Signing…' : authenticated ? 'Claim' : 'Sign in to claim'}
               </button>
             </div>
-          ))}
+            )
+          })}
           {message ? (
             <p style={{ margin: 0, fontSize: 12, color: 'rgba(200,230,200,0.95)', lineHeight: 1.45 }}>{message}</p>
           ) : null}

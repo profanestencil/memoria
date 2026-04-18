@@ -125,7 +125,54 @@ export default async function handler(req, res) {
       }
     }
 
-    if (elig.maxRedemptions != null) {
+    const campLat = camp.lat != null ? Number(camp.lat) : null
+    const campLng = camp.lng != null ? Number(camp.lng) : null
+    if (campLat != null && campLng != null && Number.isFinite(campLat) && Number.isFinite(campLng)) {
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        res.status(400).json({ error: 'Location required for this claim' })
+        return
+      }
+      const radiusM = elig.radiusM != null ? Number(elig.radiusM) : 150
+      if (!Number.isFinite(radiusM) || radiusM <= 0) {
+        res.status(500).json({ error: 'Invalid claim radius' })
+        return
+      }
+      if (!inCircle(lat, lng, campLat, campLng, radiusM)) {
+        res.status(403).json({ error: 'Not within claim area' })
+        return
+      }
+    }
+
+    const rp = camp.reward_payload && typeof camp.reward_payload === 'object' ? camp.reward_payload : {}
+    const totalRaw = typeof rp.totalAmountRaw === 'string' ? rp.totalAmountRaw : null
+    const perRaw = typeof rp.perUserAmountRaw === 'string' ? rp.perUserAmountRaw : null
+
+    if (totalRaw && perRaw) {
+      let total
+      let per
+      try {
+        total = BigInt(totalRaw)
+        per = BigInt(perRaw)
+      } catch {
+        total = 0n
+        per = 0n
+      }
+      if (per <= 0n || total <= 0n) {
+        res.status(500).json({ error: 'Invalid reward pool configuration' })
+        return
+      }
+      const { count, error: poolErr } = await sb
+        .from('claim_redemptions')
+        .select('id', { count: 'exact', head: true })
+        .eq('claim_campaign_id', campaignId)
+      if (poolErr) throw poolErr
+      const c = BigInt(count ?? 0)
+      const remaining = total - c * per
+      if (remaining < per) {
+        res.status(403).json({ error: 'All tokens have been claimed' })
+        return
+      }
+    } else if (elig.maxRedemptions != null) {
       const max = Number(elig.maxRedemptions)
       if (Number.isFinite(max)) {
         const { count, error: cntErr } = await sb

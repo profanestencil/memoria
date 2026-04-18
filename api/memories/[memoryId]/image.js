@@ -4,7 +4,7 @@ import { getStore, saveStore } from '../../_lib/storeKv.js'
 
 const toLowerAddr = (a) => (typeof a === 'string' ? a.toLowerCase() : '')
 
-const isAllowedImageUrl = (u) => {
+const isAllowedMediaUrl = (u) => {
   if (typeof u !== 'string' || u.length > 2048) return false
   const lower = u.toLowerCase()
   return lower.startsWith('https://') || lower.startsWith('http://') || lower.startsWith('ipfs://')
@@ -45,9 +45,13 @@ export default async function handler(req, res) {
     }
   }
 
-  const { imageUrl, creator, campaignTag, campaignId, pinColor } = body ?? {}
-  if (!isAllowedImageUrl(imageUrl) || typeof creator !== 'string' || !creator.startsWith('0x')) {
-    res.status(400).json({ error: 'imageUrl (http(s) or ipfs) and creator (0x…) required' })
+  const { imageUrl, audioUrl, audioLoop, creator, campaignTag, campaignId, pinColor } = body ?? {}
+  const hasImage = typeof imageUrl === 'string' && isAllowedMediaUrl(imageUrl)
+  const hasAudio = typeof audioUrl === 'string' && isAllowedMediaUrl(audioUrl)
+  if (!(hasImage || hasAudio) || typeof creator !== 'string' || !creator.startsWith('0x')) {
+    res.status(400).json({
+      error: 'creator (0x…) and at least one of imageUrl / audioUrl (http(s) or ipfs) required',
+    })
     return
   }
   const creatorLower = toLowerAddr(creator)
@@ -90,7 +94,19 @@ export default async function handler(req, res) {
       return
     }
 
-    mem.imageUrl = imageUrl
+    if (hasAudio && !hasImage) {
+      mem.audioUrl = audioUrl
+      mem.audioLoop = Boolean(audioLoop)
+      mem.mediaKind = 'audio'
+      delete mem.imageUrl
+    } else if (hasImage) {
+      mem.imageUrl = imageUrl
+      mem.mediaKind = 'image'
+      if (!hasAudio) {
+        delete mem.audioUrl
+        delete mem.audioLoop
+      }
+    }
     if (campaignTag != null && campaignTag !== '') mem.campaignTag = String(campaignTag).slice(0, 120)
     if (campaignId != null && campaignId !== '') mem.campaignId = String(campaignId).slice(0, 80)
     if (pinColor != null && pinColor !== '') mem.pinColor = String(pinColor).slice(0, 32)

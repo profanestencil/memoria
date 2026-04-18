@@ -1,5 +1,5 @@
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { useRef, useEffect, useState, useCallback } from 'react'
+import { useRef, useEffect, useState, useCallback, type ChangeEvent } from 'react'
 import { getCurrentPosition } from '@/lib/geo'
 import { fetchRuntimeActive, type ActiveCampaign } from '@/lib/runtimeActive'
 import { MemoriesMapCanvas } from '@/components/MemoriesMapCanvas'
@@ -74,6 +74,19 @@ export function Camera() {
   const [flipHint, setFlipHint] = useState<string | null>(null)
   const [zoomUi, setZoomUi] = useState<ZoomUiState | null>(null)
   const [activeCampaign, setActiveCampaign] = useState<ActiveCampaign | null>(null)
+  const [captureMode, setCaptureMode] = useState<'photo' | 'audio'>('photo')
+  const [isRecording, setIsRecording] = useState(false)
+  const [audioMicError, setAudioMicError] = useState<string | null>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
+  const audioStreamRef = useRef<MediaStream | null>(null)
+  const audioFileInputRef = useRef<HTMLInputElement>(null)
+  const abortRecordingRef = useRef(false)
+
+  const stopAudioStreamOnly = useCallback(() => {
+    audioStreamRef.current?.getTracks().forEach((t) => t.stop())
+    audioStreamRef.current = null
+  }, [])
 
   const handleOpenMap = () => {
     setSearchParams(
@@ -113,6 +126,15 @@ export function Camera() {
   }, [flipHint])
 
   useEffect(() => {
+    if (captureMode === 'audio') {
+      streamRef.current?.getTracks().forEach((tr) => tr.stop())
+      streamRef.current = null
+      if (videoRef.current) videoRef.current.srcObject = null
+      setReady(false)
+      setZoomUi(null)
+      return
+    }
+
     let cancelled = false
     let created: MediaStream | null = null
 
@@ -160,7 +182,99 @@ export function Camera() {
         streamRef.current = null
       }
     }
-  }, [facingMode])
+  }, [facingMode, captureMode])
+
+  useEffect(() => {
+    if (captureMode !== 'photo') return
+    if (mediaRecorderRef.current?.state === 'recording') {
+      abortRecordingRef.current = true
+      mediaRecorderRef.current.stop()
+    }
+    stopAudioStreamOnly()
+    setIsRecording(false)
+  }, [captureMode, stopAudioStreamOnly])
+
+  const handleStartVoiceRecord = useCallback(async () => {
+    if (isRecording) return
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      audioStreamRef.current = stream
+      audioChunksRef.current = []
+      const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/webm')
+          ? 'audio/webm'
+          : MediaRecorder.isTypeSupported('audio/mp4')
+            ? 'audio/mp4'
+            : ''
+      const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream)
+      mediaRecorderRef.current = rec
+      rec.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data)
+      }
+      rec.onstop = () => {
+        stopAudioStreamOnly()
+        mediaRecorderRef.current = null
+        setIsRecording(false)
+        if (abortRecordingRef.current) {
+          abortRecordingRef.current = false
+          return
+        }
+        const blob = new Blob(audioChunksRef.current, { type: rec.mimeType || 'audio/webm' })
+        const ext =
+          blob.type.includes('mpeg') || blob.type.includes('mp3')
+            ? 'mp3'
+            : blob.type.includes('mp4')
+              ? 'm4a'
+              : 'webm'
+        const name = `memory.${ext}`
+        const url = URL.createObjectURL(blob)
+        if (lastObjectUrlRef.current) {
+          URL.revokeObjectURL(lastObjectUrlRef.current)
+        }
+        lastObjectUrlRef.current = url
+        navigate('/preview', {
+          state: { audioBlob: blob, audioUrl: url, audioFileName: name, activeCampaign },
+        })
+      }
+      rec.start()
+      setIsRecording(true)
+    } catch {
+      setAudioMicError('Microphone unavailable. Use “Choose audio file” to add an MP3 or other track.')
+    }
+  }, [activeCampaign, isRecording, navigate, stopAudioStreamOnly])
+
+  const handleStopVoiceRecord = useCallback(() => {
+    if (!isRecording || !mediaRecorderRef.current) return
+    if (mediaRecorderRef.current.state === 'inactive') return
+    mediaRecorderRef.current.stop()
+  }, [isRecording])
+
+  const handlePickAudioFile = useCallback(() => {
+    audioFileInputRef.current?.click()
+  }, [])
+
+  const handleAudioFileChange = useCallback(
+    (e: ChangeEvent<HTMLInputElement>) => {
+      const f = e.target.files?.[0]
+      e.target.value = ''
+      if (!f) return
+      const url = URL.createObjectURL(f)
+      if (lastObjectUrlRef.current) {
+        URL.revokeObjectURL(lastObjectUrlRef.current)
+      }
+      lastObjectUrlRef.current = url
+      navigate('/preview', {
+        state: {
+          audioBlob: f,
+          audioUrl: url,
+          audioFileName: f.name || 'memory.mp3',
+          activeCampaign,
+        },
+      })
+    },
+    [activeCampaign, navigate]
+  )
 
   const handleFlipCamera = useCallback(() => {
     if (flipBusy || !ready) return
@@ -279,14 +393,71 @@ export function Camera() {
         </div>
       ) : null}
 
-      <video
-        ref={videoRef}
-        autoPlay
-        playsInline
-        muted
-        className={`mem-camera__video${facingMode === 'user' ? ' mem-camera__video--mirror' : ''}`}
-        style={{ filter: selectedFilter.filter || 'none' }}
+      <input
+        ref={audioFileInputRef}
+        type="file"
+        accept="audio/*,.mp3,audio/mpeg,audio/webm,audio/mp4,audio/x-m4a"
+        style={{ display: 'none' }}
+        aria-hidden
+        onChange={handleAudioFileChange}
       />
+
+      {captureMode === 'audio' ? (
+        <div
+          className="mem-camera__audio-panel"
+          style={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 2,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 'max(24px, env(safe-area-inset-top)) 20px max(32px, env(safe-area-inset-bottom))',
+            background: 'linear-gradient(180deg, rgba(8, 22, 32, 0.96), rgba(6, 8, 12, 0.98))',
+            gap: 14,
+            textAlign: 'center',
+            color: 'var(--mem-text, #eae6e1)',
+          }}
+        >
+          <p style={{ margin: 0, maxWidth: 320, lineHeight: 1.5, fontSize: 15 }}>
+            Record a short voice note, or pick an MP3 / audio file from your device.
+          </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'center' }}>
+            {!isRecording ? (
+              <button type="button" className="mem-btn mem-btn--primary" onClick={() => void handleStartVoiceRecord()}>
+                Start recording
+              </button>
+            ) : (
+              <button type="button" className="mem-btn mem-btn--secondary" onClick={handleStopVoiceRecord}>
+                Stop &amp; preview
+              </button>
+            )}
+            <button type="button" className="mem-btn mem-btn--secondary" onClick={handlePickAudioFile} disabled={isRecording}>
+              Choose audio file…
+            </button>
+          </div>
+          {isRecording ? (
+            <p style={{ margin: 0, fontSize: 13, color: 'rgba(165, 243, 252, 0.9)' }} role="status">
+              Recording… tap stop when you are done.
+            </p>
+          ) : null}
+          {audioMicError ? (
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--mem-danger, #f0a0a0)', maxWidth: 320 }} role="alert">
+              {audioMicError}
+            </p>
+          ) : null}
+        </div>
+      ) : (
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          className={`mem-camera__video${facingMode === 'user' ? ' mem-camera__video--mirror' : ''}`}
+          style={{ filter: selectedFilter.filter || 'none' }}
+        />
+      )}
 
       {mapOpen && MAPBOX_TOKEN ? (
         <div
@@ -323,53 +494,57 @@ export function Camera() {
         </div>
       ) : null}
 
-      <div
-        className="camera-filter-strip"
-        style={{
-          position: 'absolute',
-          bottom: filterStripBottom,
-          left: 'var(--mem-camera-left)',
-          right: 'calc(var(--mem-camera-right) + var(--mem-camera-thumb) + 12px)',
-          display: 'flex',
-          gap: 8,
-          overflowX: 'auto',
-          paddingBottom: 4,
-          scrollbarWidth: 'none',
-          msOverflowStyle: 'none',
-        }}
-      >
-        {CAMERA_FILTERS.map((f) => {
-          const selected = f.id === selectedFilterId
-          return (
-            <button
-              key={f.id}
-              type="button"
-              onClick={() => setSelectedFilterId(f.id)}
-              className={`mem-filter-pill ${selected ? 'mem-filter-pill--active' : ''}`}
-            >
-              {f.label}
-            </button>
-          )
-        })}
-      </div>
-      <div
-        style={{
-          position: 'absolute',
-          bottom: 'var(--mem-camera-bottom)',
-          left: 0,
-          right: 0,
-          display: 'flex',
-          justifyContent: 'center',
-        }}
-      >
-        <button
-          type="button"
-          onClick={capture}
-          disabled={!ready}
-          className="mem-ios-shutter"
-          aria-label="Capture photo"
-        />
-      </div>
+      {captureMode === 'photo' ? (
+        <div
+          className="camera-filter-strip"
+          style={{
+            position: 'absolute',
+            bottom: filterStripBottom,
+            left: 'var(--mem-camera-left)',
+            right: 'calc(var(--mem-camera-right) + var(--mem-camera-thumb) + 12px)',
+            display: 'flex',
+            gap: 8,
+            overflowX: 'auto',
+            paddingBottom: 4,
+            scrollbarWidth: 'none',
+            msOverflowStyle: 'none',
+          }}
+        >
+          {CAMERA_FILTERS.map((f) => {
+            const selected = f.id === selectedFilterId
+            return (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => setSelectedFilterId(f.id)}
+                className={`mem-filter-pill ${selected ? 'mem-filter-pill--active' : ''}`}
+              >
+                {f.label}
+              </button>
+            )
+          })}
+        </div>
+      ) : null}
+      {captureMode === 'photo' ? (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 'var(--mem-camera-bottom)',
+            left: 0,
+            right: 0,
+            display: 'flex',
+            justifyContent: 'center',
+          }}
+        >
+          <button
+            type="button"
+            onClick={capture}
+            disabled={!ready}
+            className="mem-ios-shutter"
+            aria-label="Capture photo"
+          />
+        </div>
+      ) : null}
       <div
         style={{
           position: 'absolute',
@@ -385,11 +560,29 @@ export function Camera() {
           pointerEvents: 'none',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, pointerEvents: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, pointerEvents: 'auto', flexWrap: 'wrap' }}>
           <WalletProfileButton />
           <span className="mem-brand" style={{ fontSize: '1.15rem', textShadow: '0 2px 12px rgba(0,0,0,0.5)' }}>
             Memoria
           </span>
+          <div className="mem-seg" role="group" aria-label="Capture mode" style={{ marginLeft: 4 }}>
+            <button
+              type="button"
+              className={`mem-seg__btn${captureMode === 'photo' ? ' mem-seg__btn--active' : ''}`}
+              onClick={() => setCaptureMode('photo')}
+              aria-pressed={captureMode === 'photo'}
+            >
+              Photo
+            </button>
+            <button
+              type="button"
+              className={`mem-seg__btn${captureMode === 'audio' ? ' mem-seg__btn--active' : ''}`}
+              onClick={() => setCaptureMode('audio')}
+              aria-pressed={captureMode === 'audio'}
+            >
+              Audio
+            </button>
+          </div>
         </div>
         <button
           type="button"
@@ -406,7 +599,7 @@ export function Camera() {
         </button>
       </div>
 
-      <div className="mem-camera__right-stack">
+      <div className="mem-camera__right-stack" style={{ opacity: captureMode === 'photo' ? 1 : 0.35, pointerEvents: captureMode === 'photo' ? 'auto' : 'none' }}>
         {zoomUi ? (
           <div className="mem-camera__zoom mem-camera__zoom--vertical">
             <span className="mem-camera__zoom-label" id="mem-camera-zoom-label">

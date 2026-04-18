@@ -16,7 +16,7 @@ function toLowerAddr(a) {
   return typeof a === 'string' ? a.toLowerCase() : ''
 }
 
-function isAllowedImageUrl(u) {
+function isAllowedMediaUrl(u) {
   if (typeof u !== 'string' || u.length > 2048) return false
   const lower = u.toLowerCase()
   return lower.startsWith('https://') || lower.startsWith('http://') || lower.startsWith('ipfs://')
@@ -117,7 +117,7 @@ async function main() {
     }
   })
 
-  /** Attach cover image (client proves wallet by sending creator address; must match on-chain). */
+  /** Attach cover image and/or audio (client sends creator; must match on-chain). */
   app.post('/memories/:memoryId/image', async (req, res) => {
     if (!contractAddress) {
       res.status(503).json({ error: 'Indexer has no MEMORY_REGISTRY_ADDRESS' })
@@ -128,9 +128,13 @@ async function main() {
       res.status(400).json({ error: 'Invalid memoryId' })
       return
     }
-    const { imageUrl, creator } = req.body ?? {}
-    if (!isAllowedImageUrl(imageUrl) || typeof creator !== 'string' || !creator.startsWith('0x')) {
-      res.status(400).json({ error: 'imageUrl (http(s) or ipfs) and creator (0x…) required' })
+    const { imageUrl, audioUrl, audioLoop, creator, campaignTag, campaignId, pinColor } = req.body ?? {}
+    const hasImage = typeof imageUrl === 'string' && isAllowedMediaUrl(imageUrl)
+    const hasAudio = typeof audioUrl === 'string' && isAllowedMediaUrl(audioUrl)
+    if (!(hasImage || hasAudio) || typeof creator !== 'string' || !creator.startsWith('0x')) {
+      res
+        .status(400)
+        .json({ error: 'creator (0x…) and at least one of imageUrl / audioUrl (http(s) or ipfs) required' })
       return
     }
     const creatorLower = toLowerAddr(creator)
@@ -167,7 +171,22 @@ async function main() {
         res.status(403).json({ error: 'creator does not match memory owner' })
         return
       }
-      mem.imageUrl = imageUrl
+      if (hasAudio && !hasImage) {
+        mem.audioUrl = audioUrl
+        mem.audioLoop = Boolean(audioLoop)
+        mem.mediaKind = 'audio'
+        delete mem.imageUrl
+      } else if (hasImage) {
+        mem.imageUrl = imageUrl
+        mem.mediaKind = 'image'
+        if (!hasAudio) {
+          delete mem.audioUrl
+          delete mem.audioLoop
+        }
+      }
+      if (campaignTag != null && campaignTag !== '') mem.campaignTag = String(campaignTag).slice(0, 120)
+      if (campaignId != null && campaignId !== '') mem.campaignId = String(campaignId).slice(0, 80)
+      if (pinColor != null && pinColor !== '') mem.pinColor = String(pinColor).slice(0, 32)
       await saveStore(idx.store)
       res.json({ ok: true })
     } catch (e) {

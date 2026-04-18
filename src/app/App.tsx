@@ -38,8 +38,11 @@ export function App() {
       appId={privyAppId}
       config={{
         appearance: {
-          /** Rainbow first (direct app open on mobile); MetaMask. No WalletConnect as default entry. */
-          walletList: ['rainbow', 'metamask'],
+          /**
+           * Android users often use Coinbase / WalletConnect / in-app browser wallets.
+           * Keep Rainbow + MetaMask first; add common fallbacks without forcing WC as step one.
+           */
+          walletList: ['rainbow', 'metamask', 'coinbase_wallet', 'wallet_connect'],
         },
         embeddedWallets: {
           createOnLogin: 'users-without-wallets',

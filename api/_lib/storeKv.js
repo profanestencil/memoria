@@ -19,16 +19,18 @@ export const getStore = async () => {
   if (v && typeof v === 'object' && Array.isArray(v.memories)) {
     return {
       lastBlock: typeof v.lastBlock === 'number' ? v.lastBlock : 0,
-      memories: v.memories
+      memories: v.memories,
+      drafts: Array.isArray(v.drafts) ? v.drafts : []
     }
   }
-  return { lastBlock: 0, memories: [] }
+  return { lastBlock: 0, memories: [], drafts: [] }
 }
 
 export const saveStore = async (store) => {
   const redis = getRedis()
   await redis.set(KEY, {
     lastBlock: store.lastBlock ?? 0,
-    memories: store.memories ?? []
+    memories: store.memories ?? [],
+    drafts: store.drafts ?? []
   })
 }
