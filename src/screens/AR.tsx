@@ -739,8 +739,9 @@ function ArMemoryXR({ state }: { state: LocationState }) {
               }
             })
             pushDebug('XR8.runPreRender hooked')
-          } catch {
-            // ignore
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e)
+            pushDebug(`XR8.runPreRender hook error: ${msg}`)
           }
         } else {
           pushDebug('XR8.runPreRender missing')
@@ -861,6 +862,33 @@ function ArMemoryXR({ state }: { state: LocationState }) {
             if (stopped) return
             if (frames === 0) pushDebug('WARNING: no runPreRender frames after 1s')
           }, 1000)
+
+          // GL sanity probe: read one pixel. If the camera background is rendering, this should be non-zero
+          // most of the time (even if our Three content isn't placed yet).
+          window.setTimeout(() => {
+            if (stopped) return
+            try {
+              const c = document.getElementById('overlayView3d') as HTMLCanvasElement | null
+              if (!c) {
+                pushDebug('GL probe: canvas missing')
+                return
+              }
+              const gl =
+                (c.getContext('webgl', { preserveDrawingBuffer: true }) as WebGLRenderingContext | null) ??
+                (c.getContext('webgl') as WebGLRenderingContext | null)
+              if (!gl) {
+                pushDebug('GL probe: no webgl context')
+                return
+              }
+              const px = new Uint8Array(4)
+              gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px)
+              const err = gl.getError()
+              pushDebug(`GL probe: px=[${px[0]},${px[1]},${px[2]},${px[3]}] err=${err}`)
+            } catch (e) {
+              const msg = e instanceof Error ? e.message : String(e)
+              pushDebug(`GL probe error: ${msg}`)
+            }
+          }, 1200)
 
           scheduleArviewAfterRun(x)
         } else {
