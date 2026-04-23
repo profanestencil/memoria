@@ -918,13 +918,36 @@ function ArMemoryXR({ state }: { state: LocationState }) {
             if (rafId != null) return
             const tick = () => {
               if (stopped) return
-              try {
-                if (x.runPreRender) x.runPreRender(Date.now())
-                if (x.runRender) x.runRender()
-                if (x.runPostRender) x.runPostRender()
-              } catch (e) {
-                const msg = e instanceof Error ? e.message : String(e)
-                pushDebug(`renderLoop error: ${msg}`)
+              // Important: some engine builds throw inside `runPreRender` (trace flush not initialized).
+              // We still want to attempt `runRender` / `runPostRender` even if pre-render fails.
+              if (x.runPreRender) {
+                try {
+                  // If `runPreRender` is the callback-registration API (expects a function), do not call it here.
+                  // Heuristic: registration APIs typically have arity >= 1 and we call them elsewhere with a function.
+                  // We'll only invoke it as a per-frame tick if it *doesn't* look like a registration API.
+                  if (x.runPreRender.length === 0) {
+                    x.runPreRender()
+                  }
+                } catch (e) {
+                  const msg = e instanceof Error ? e.message : String(e)
+                  pushDebug(`renderLoop runPreRender error: ${msg}`)
+                }
+              }
+              if (x.runRender) {
+                try {
+                  x.runRender()
+                } catch (e) {
+                  const msg = e instanceof Error ? e.message : String(e)
+                  pushDebug(`renderLoop runRender error: ${msg}`)
+                }
+              }
+              if (x.runPostRender) {
+                try {
+                  x.runPostRender()
+                } catch (e) {
+                  const msg = e instanceof Error ? e.message : String(e)
+                  pushDebug(`renderLoop runPostRender error: ${msg}`)
+                }
               }
               rafId = requestAnimationFrame(tick)
             }
