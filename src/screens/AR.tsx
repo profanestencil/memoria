@@ -797,6 +797,18 @@ function ArMemoryXR({ state }: { state: LocationState }) {
           }
         }
 
+        // Ensure the Three.js module is configured to render the camera texture background.
+        // If this is off, the WebGL buffer can stay transparent/blank even with the camera feed modules attached.
+        if (x.Threejs?.configure) {
+          try {
+            x.Threejs.configure({ renderCameraTexture: true })
+            pushDebug('Threejs.configure renderCameraTexture=true')
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e)
+            pushDebug(`Threejs.configure error: ${msg}`)
+          }
+        }
+
         // CameraPixelArray (or YuvPixelsArray) registers the texture provider GlTextureRenderer uses; without it
         // the framebuffer can stay blank (often reads as white behind transparent clears).
         // Order: feed → GL background → Three.js → controller → app logic.
