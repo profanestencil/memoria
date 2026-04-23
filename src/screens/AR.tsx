@@ -916,18 +916,18 @@ function ArMemoryXR({ state }: { state: LocationState }) {
           // pipeline modules attached successfully.
           const startRenderLoop = () => {
             if (rafId != null) return
+            let ticks = 0
+            let lastTickReportAt = Date.now()
             const tick = () => {
               if (stopped) return
               // Important: some engine builds throw inside `runPreRender` (trace flush not initialized).
               // We still want to attempt `runRender` / `runPostRender` even if pre-render fails.
               if (x.runPreRender) {
                 try {
-                  // If `runPreRender` is the callback-registration API (expects a function), do not call it here.
-                  // Heuristic: registration APIs typically have arity >= 1 and we call them elsewhere with a function.
-                  // We'll only invoke it as a per-frame tick if it *doesn't* look like a registration API.
-                  if (x.runPreRender.length === 0) {
-                    x.runPreRender()
-                  }
+                  // XR8.runPreRender is overloaded in some builds:
+                  // - runPreRender(fn) registers a callback
+                  // - runPreRender(timestampMs) advances the internal frame
+                  x.runPreRender(Date.now())
                 } catch (e) {
                   const msg = e instanceof Error ? e.message : String(e)
                   pushDebug(`renderLoop runPreRender error: ${msg}`)
@@ -948,6 +948,13 @@ function ArMemoryXR({ state }: { state: LocationState }) {
                   const msg = e instanceof Error ? e.message : String(e)
                   pushDebug(`renderLoop runPostRender error: ${msg}`)
                 }
+              }
+              ticks += 1
+              const now = Date.now()
+              if (now - lastTickReportAt > 1000) {
+                pushDebug(`renderLoop ticks~${ticks}`)
+                ticks = 0
+                lastTickReportAt = now
               }
               rafId = requestAnimationFrame(tick)
             }
