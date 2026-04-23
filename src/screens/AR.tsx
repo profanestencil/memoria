@@ -730,6 +730,7 @@ function ArMemoryXR({ state }: { state: LocationState }) {
           try {
             x.runPreRender(() => {
               frames += 1
+              if (frames === 1) pushDebug('runPreRender first frame')
               const now = Date.now()
               if (now - lastReportAt > 1000) {
                 pushDebug(`runPreRender fps~${frames}`)
@@ -856,6 +857,11 @@ function ArMemoryXR({ state }: { state: LocationState }) {
             // ignore
           }
 
+          window.setTimeout(() => {
+            if (stopped) return
+            if (frames === 0) pushDebug('WARNING: no runPreRender frames after 1s')
+          }, 1000)
+
           scheduleArviewAfterRun(x)
         } else {
           setMachine('ERROR', null, 'Failed to start 8th Wall runtime.')
@@ -916,12 +922,45 @@ function ArMemoryXR({ state }: { state: LocationState }) {
 
   const overlay = ui.error ? null : ui.overlay
   const showBack = true
+
+  const requestMotionPermissions = async (pushDebug?: (line: string) => void) => {
+    const w = window as unknown as {
+      DeviceMotionEvent?: { requestPermission?: () => Promise<'granted' | 'denied'> }
+      DeviceOrientationEvent?: { requestPermission?: () => Promise<'granted' | 'denied'> }
+    }
+
+    const tryReq = async (label: string, req?: () => Promise<'granted' | 'denied'>) => {
+      if (!req) return
+      try {
+        const res = await req()
+        pushDebug?.(`${label} permission=${res}`)
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        pushDebug?.(`${label} permission error: ${msg}`)
+      }
+    }
+
+    await tryReq('DeviceMotion', w.DeviceMotionEvent?.requestPermission)
+    await tryReq('DeviceOrientation', w.DeviceOrientationEvent?.requestPermission)
+  }
+
   const handleTapToStart = async () => {
     if (tapToStartBusy) return
     if (ui.state !== 'IN_RANGE_STARTING_AR') return
     if (!startXrRef.current) return
     setTapToStartBusy(true)
     try {
+      // iOS Safari gates sensor APIs behind user gesture; 8th Wall may wait for these before producing frames.
+      await requestMotionPermissions((line) => {
+        if (debugEnabled) {
+          // Use the same debug stream used by XR
+          setDebug((prev) => {
+            if (!prev.enabled) return prev
+            const next = [...prev.lines, line]
+            return { ...prev, lines: next.slice(-60) }
+          })
+        }
+      })
       await startXrRef.current(true)
     } finally {
       setTapToStartBusy(false)
