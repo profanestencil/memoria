@@ -829,10 +829,25 @@ function ArMemoryXR({ state }: { state: LocationState }) {
         }
 
         if (x.run) {
-          pushDebug('XR8.run(canvasElement, {}) sdkFix=v3')
-          // First argument must be the WebGL canvas; second is session config (`{}` ok).
-          // `XR8.run({})` leaves pipeline without a canvas — `#overlayView3d` never existed.
-          x.run(xrCanvas, {})
+          const arRunArity = typeof x.run === 'function' ? x.run.length : -1
+          pushDebug(`XR8.run arity=${arRunArity} sdkFix=v4`)
+
+          // XR8.run has multiple signatures depending on engine build / wrappers.
+          // We prefer the "config object" signature if it looks supported (arity 1),
+          // otherwise fall back to the (canvas, config) signature.
+          try {
+            if (arRunArity === 1) {
+              pushDebug('XR8.run({ canvas }) sdkFix=v4')
+              x.run({ canvas: xrCanvas })
+            } else {
+              pushDebug('XR8.run(canvasElement, {}) sdkFix=v4')
+              x.run(xrCanvas, {})
+            }
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e)
+            pushDebug(`XR8.run threw: ${msg}`)
+            throw e
+          }
           xrRunning = true
           pushDebug('XR8.run() returned')
           try {
