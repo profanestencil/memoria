@@ -813,10 +813,52 @@ function ArMemoryXR({ state }: { state: LocationState }) {
           }
         }
 
+        const debugPipelineModule = () => {
+          let attached = false
+          let lastVideo = ''
+          let lastCanvas = ''
+          return {
+            name: 'memoria-debug-pipeline',
+            onAttach: (args: any) => {
+              attached = true
+              try {
+                const vw = args?.videoWidth
+                const vh = args?.videoHeight
+                const cw = args?.canvasWidth
+                const ch = args?.canvasHeight
+                lastVideo = `${vw}x${vh}`
+                lastCanvas = `${cw}x${ch}`
+                pushDebug(`pipeline onAttach video=${lastVideo} canvas=${lastCanvas}`)
+              } catch {
+                pushDebug('pipeline onAttach (failed to read sizes)')
+              }
+            },
+            onUpdate: (args: any) => {
+              if (!attached) return
+              try {
+                const vw = args?.videoWidth
+                const vh = args?.videoHeight
+                const cw = args?.canvasWidth
+                const ch = args?.canvasHeight
+                const v = `${vw}x${vh}`
+                const c = `${cw}x${ch}`
+                if (v !== lastVideo || c !== lastCanvas) {
+                  lastVideo = v
+                  lastCanvas = c
+                  pushDebug(`pipeline sizes video=${v} canvas=${c}`)
+                }
+              } catch {
+                // ignore
+              }
+            }
+          }
+        }
+
         // CameraPixelArray (or YuvPixelsArray) registers the texture provider GlTextureRenderer uses; without it
         // the framebuffer can stay blank (often reads as white behind transparent clears).
         // Order: feed → GL background → Three.js → controller → app logic.
         const modules = [
+          debugPipelineModule(),
           pixelFeedApi?.pipelineModule?.(),
           x.Canvas?.pipelineModule?.(),
           x.Camera?.pipelineModule?.(),
@@ -884,7 +926,7 @@ function ArMemoryXR({ state }: { state: LocationState }) {
                 return
               }
               const gl =
-                (c.getContext('webgl', { preserveDrawingBuffer: true }) as WebGLRenderingContext | null) ??
+                (c.getContext('webgl2') as unknown as WebGLRenderingContext | null) ??
                 (c.getContext('webgl') as WebGLRenderingContext | null)
               if (!gl) {
                 pushDebug(`GL probe(${label}): no webgl context`)
