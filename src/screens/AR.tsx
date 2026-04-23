@@ -417,6 +417,7 @@ function ArMemoryXR({ state }: { state: LocationState }) {
 
     let stopped = false
     let xrRunning = false
+    let rafId: number | null = null
 
     const XR8Any = () => (globalThis as unknown as { XR8?: any }).XR8
     const isPermissionError = (e: unknown) => {
@@ -438,6 +439,14 @@ function ArMemoryXR({ state }: { state: LocationState }) {
         if (x?.stop) x.stop()
       } catch {
         // ignore
+      }
+      if (rafId != null) {
+        try {
+          cancelAnimationFrame(rafId)
+        } catch {
+          // ignore
+        }
+        rafId = null
       }
       xrRunning = false
     }
@@ -901,6 +910,28 @@ function ArMemoryXR({ state }: { state: LocationState }) {
           } catch {
             // ignore
           }
+
+          // Some XR8 builds require the host app to drive the render loop (see engine’s Babylon/PlayCanvas adapters).
+          // If we don't call runPreRender/runRender/runPostRender, the camera feed can remain blank even though the
+          // pipeline modules attached successfully.
+          const startRenderLoop = () => {
+            if (rafId != null) return
+            const tick = () => {
+              if (stopped) return
+              try {
+                if (x.runPreRender) x.runPreRender(Date.now())
+                if (x.runRender) x.runRender()
+                if (x.runPostRender) x.runPostRender()
+              } catch (e) {
+                const msg = e instanceof Error ? e.message : String(e)
+                pushDebug(`renderLoop error: ${msg}`)
+              }
+              rafId = requestAnimationFrame(tick)
+            }
+            pushDebug('renderLoop started')
+            rafId = requestAnimationFrame(tick)
+          }
+          startRenderLoop()
 
           // Some engine builds can't hook runPreRender until after XR8.run initializes internals.
           // We try once now, and retry shortly after.
