@@ -726,7 +726,11 @@ function ArMemoryXR({ state }: { state: LocationState }) {
 
         let frames = 0
         let lastReportAt = Date.now()
-        if (x.runPreRender) {
+        const tryHookPreRender = (label: string) => {
+          if (!x.runPreRender) {
+            pushDebug('XR8.runPreRender missing')
+            return
+          }
           try {
             x.runPreRender(() => {
               frames += 1
@@ -738,13 +742,11 @@ function ArMemoryXR({ state }: { state: LocationState }) {
                 lastReportAt = now
               }
             })
-            pushDebug('XR8.runPreRender hooked')
+            pushDebug(`XR8.runPreRender hooked (${label})`)
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e)
-            pushDebug(`XR8.runPreRender hook error: ${msg}`)
+            pushDebug(`XR8.runPreRender hook error (${label}): ${msg}`)
           }
-        } else {
-          pushDebug('XR8.runPreRender missing')
         }
 
         const xr8Bag = x as Record<string, unknown>
@@ -858,6 +860,14 @@ function ArMemoryXR({ state }: { state: LocationState }) {
             // ignore
           }
 
+          // Some engine builds can't hook runPreRender until after XR8.run initializes internals.
+          // We try once now, and retry shortly after.
+          tryHookPreRender('post-run')
+          window.setTimeout(() => {
+            if (stopped) return
+            tryHookPreRender('post-run retry')
+          }, 250)
+
           window.setTimeout(() => {
             if (stopped) return
             if (frames === 0) pushDebug('WARNING: no runPreRender frames after 1s')
@@ -865,30 +875,33 @@ function ArMemoryXR({ state }: { state: LocationState }) {
 
           // GL sanity probe: read one pixel. If the camera background is rendering, this should be non-zero
           // most of the time (even if our Three content isn't placed yet).
-          window.setTimeout(() => {
+          const probeGlOnce = (label: string) => {
             if (stopped) return
             try {
               const c = document.getElementById('overlayView3d') as HTMLCanvasElement | null
               if (!c) {
-                pushDebug('GL probe: canvas missing')
+                pushDebug(`GL probe(${label}): canvas missing`)
                 return
               }
               const gl =
                 (c.getContext('webgl', { preserveDrawingBuffer: true }) as WebGLRenderingContext | null) ??
                 (c.getContext('webgl') as WebGLRenderingContext | null)
               if (!gl) {
-                pushDebug('GL probe: no webgl context')
+                pushDebug(`GL probe(${label}): no webgl context`)
                 return
               }
               const px = new Uint8Array(4)
               gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px)
               const err = gl.getError()
-              pushDebug(`GL probe: px=[${px[0]},${px[1]},${px[2]},${px[3]}] err=${err}`)
+              pushDebug(`GL probe(${label}): px=[${px[0]},${px[1]},${px[2]},${px[3]}] err=${err}`)
             } catch (e) {
               const msg = e instanceof Error ? e.message : String(e)
-              pushDebug(`GL probe error: ${msg}`)
+              pushDebug(`GL probe(${label}) error: ${msg}`)
             }
-          }, 1200)
+          }
+
+          window.setTimeout(() => probeGlOnce('t+350ms'), 350)
+          window.setTimeout(() => probeGlOnce('t+1200ms'), 1200)
 
           scheduleArviewAfterRun(x)
         } else {
