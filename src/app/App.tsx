@@ -1,39 +1,33 @@
 import { PrivyProvider } from '@privy-io/react-auth'
-import { base } from 'wagmi/chains'
+import { base, baseSepolia } from 'wagmi/chains'
+import { IllustMark } from '@/components/IllustMark'
 import { AppProvider } from './AppProvider'
+import { PrivyTeeMigration } from './PrivyTeeMigration'
 import { Router } from './Router'
 
 const privyAppId = import.meta.env.VITE_PRIVY_APP_ID
+const chainName = import.meta.env.VITE_CHAIN === 'base-sepolia' ? 'base-sepolia' : 'base'
+const chain = chainName === 'base-sepolia' ? baseSepolia : base
 
 export function App() {
   if (!privyAppId) {
     return (
-      <div
-        style={{
-          padding: 24,
-          maxWidth: 480,
-          margin: '0 auto',
-          color: '#fca5a5',
-          lineHeight: 1.6,
-        }}
-      >
-        <h1 style={{ fontSize: '1.125rem', marginBottom: 12 }}>Privy app ID missing</h1>
-        <p style={{ marginBottom: 12 }}>
-          <code style={{ color: '#e5e5e5' }}>VITE_PRIVY_APP_ID</code> was not set when this app was
-          built. Vite bakes env in at <strong>build time</strong>, so it must be set where you
-          deploy.
+      <div className="mem-config-error" style={{ position: 'relative', minHeight: '100dvh' }}>
+        <IllustMark />
+        <h1>Privy app ID missing</h1>
+        <p style={{ margin: '0 0 16px', color: 'var(--mem-text-muted)' }}>
+          <code>VITE_PRIVY_APP_ID</code> was not set when this app was built. Vite bakes env in at{' '}
+          <strong>build time</strong>, so it must be set where you deploy.
         </p>
-        <p style={{ marginBottom: 8 }}>
+        <p style={{ margin: '0 0 12px', color: 'var(--mem-text-muted)' }}>
           <strong>Vercel:</strong> Project → Settings → Environment Variables → add{' '}
-          <code style={{ color: '#e5e5e5' }}>VITE_PRIVY_APP_ID</code> (value from{' '}
-          <a href="https://dashboard.privy.io" style={{ color: '#93c5fd' }}>
-            Privy dashboard
-          </a>
-          ) → Save → Deployments → Redeploy (clear build cache if needed).
+          <code>VITE_PRIVY_APP_ID</code> (value from{' '}
+          <a href="https://dashboard.privy.io">Privy dashboard</a>) → Save → Redeploy (clear build cache
+          if needed).
         </p>
-        <p>
-          <strong>Local:</strong> put it in <code style={{ color: '#e5e5e5' }}>.env</code> then{' '}
-          <code style={{ color: '#e5e5e5' }}>npm run dev</code> / <code style={{ color: '#e5e5e5' }}>npm run build</code>.
+        <p style={{ margin: 0, color: 'var(--mem-text-muted)' }}>
+          <strong>Local:</strong> add it to <code>.env</code> then run <code>npm run dev</code> or{' '}
+          <code>npm run build</code>.
         </p>
       </div>
     )
@@ -45,19 +39,20 @@ export function App() {
       config={{
         appearance: {
           /**
-           * Ensure Rainbow is offered as an external wallet option.
-           * On mobile, Rainbow's in-app browser will also be auto-detected.
+           * Android users often use Coinbase / WalletConnect / in-app browser wallets.
+           * Keep Rainbow + MetaMask first; add common fallbacks without forcing WC as step one.
            */
-          walletList: ['rainbow', 'metamask', 'wallet_connect_qr'],
+          walletList: ['rainbow', 'metamask', 'coinbase_wallet', 'wallet_connect'],
         },
         embeddedWallets: {
           createOnLogin: 'users-without-wallets',
         },
-        defaultChain: base,
-        supportedChains: [base],
+        defaultChain: chain,
+        supportedChains: [chain],
       }}
     >
       <AppProvider>
+        <PrivyTeeMigration />
         <Router />
       </AppProvider>
     </PrivyProvider>

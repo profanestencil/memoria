@@ -1,3 +1,13 @@
 {
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "crons": [{ "path": "/api/cron/sync", "schedule": "* * * * *" }],
+  "functions": {
+    "api/cron/sync.js": { "maxDuration": 60 }
+  },
+  "rewrites": [
+    { "source": "/health", "destination": "/api/health" },
+    { "source": "/memories/:memoryId/image", "destination": "/api/memory-image?memoryId=:memoryId" },
+    { "source": "/memories/:memoryId/seed", "destination": "/api/memory-seed?memoryId=:memoryId" },
+    { "source": "/memories", "destination": "/api/memories" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
 }
