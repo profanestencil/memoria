@@ -918,6 +918,9 @@ function ArMemoryXR({ state }: { state: LocationState }) {
             if (rafId != null) return
             let ticks = 0
             let lastTickReportAt = Date.now()
+            let preErr = 0
+            let renderErr = 0
+            let postErr = 0
             const tick = () => {
               if (stopped) return
               // Important: some engine builds throw inside `runPreRender` (trace flush not initialized).
@@ -929,30 +932,33 @@ function ArMemoryXR({ state }: { state: LocationState }) {
                   // - runPreRender(timestampMs) advances the internal frame
                   x.runPreRender(Date.now())
                 } catch (e) {
+                  preErr += 1
                   const msg = e instanceof Error ? e.message : String(e)
-                  pushDebug(`renderLoop runPreRender error: ${msg}`)
+                  if (preErr <= 3) pushDebug(`renderLoop runPreRender error: ${msg}`)
                 }
               }
               if (x.runRender) {
                 try {
                   x.runRender()
                 } catch (e) {
+                  renderErr += 1
                   const msg = e instanceof Error ? e.message : String(e)
-                  pushDebug(`renderLoop runRender error: ${msg}`)
+                  if (renderErr <= 3) pushDebug(`renderLoop runRender error: ${msg}`)
                 }
               }
               if (x.runPostRender) {
                 try {
                   x.runPostRender()
                 } catch (e) {
+                  postErr += 1
                   const msg = e instanceof Error ? e.message : String(e)
-                  pushDebug(`renderLoop runPostRender error: ${msg}`)
+                  if (postErr <= 3) pushDebug(`renderLoop runPostRender error: ${msg}`)
                 }
               }
               ticks += 1
               const now = Date.now()
               if (now - lastTickReportAt > 1000) {
-                pushDebug(`renderLoop ticks~${ticks}`)
+                pushDebug(`renderLoop ticks~${ticks} errs pre=${preErr} render=${renderErr} post=${postErr}`)
                 ticks = 0
                 lastTickReportAt = now
               }
@@ -1005,6 +1011,7 @@ function ArMemoryXR({ state }: { state: LocationState }) {
 
           window.setTimeout(() => probeGlOnce('t+350ms'), 350)
           window.setTimeout(() => probeGlOnce('t+1200ms'), 1200)
+          window.setTimeout(() => probeGlOnce('t+2500ms'), 2500)
 
           scheduleArviewAfterRun(x)
         } else {
