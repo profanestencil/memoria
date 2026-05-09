@@ -54,7 +54,10 @@ const requestCameraPermission = async (): Promise<RequestResult> => {
 }
 
 /**
- * Ask for permissions up-front (from a user gesture) to improve AR startup reliability.\n+ * - Camera: via getUserMedia preflight\n+ * - Motion/orientation: iOS prompt if required\n+ */
+ * Ask for permissions up-front (from a user gesture) to improve AR startup reliability.
+ * - Camera: via getUserMedia preflight
+ * - Motion/orientation: iOS prompt if required
+ */
 export const requestArPermissions = async (): Promise<RequestResult> => {
   // iOS is the platform most likely to require explicit motion prompts.
   if (isProbablyIos()) {

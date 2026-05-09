@@ -17,6 +17,7 @@ import {
   type RuntimeClaimCampaign,
   type RuntimePoi,
 } from '@/lib/runtimeActive'
+import { navigateRuntimeIframeAr } from '@/lib/navigateRuntimeAr'
 
 const mapboxTokenState = getMapboxClientTokenState()
 const indexerUrl = (import.meta.env.VITE_INDEXER_URL ?? 'http://localhost:8787').replace(/\/$/, '')
@@ -457,27 +458,7 @@ export function MemoriesMapCanvas({
 
   const handleArSceneTap = useCallback(
     (scene: RuntimeArScene) => {
-      if (scene.sceneType === 'iframe_url') {
-        const pl = scene.scenePayload
-        const iframeUrl =
-          typeof pl?.url === 'string'
-            ? pl.url
-            : typeof pl?.iframeUrl === 'string'
-              ? pl.iframeUrl
-              : null
-        if (iframeUrl) {
-          navigate('/ar', {
-            state: {
-              mode: 'iframe' as const,
-              iframeUrl,
-              latitude: scene.lat,
-              longitude: scene.lng,
-              geoRadiusM: scene.geoRadiusM,
-              sceneName: scene.name,
-            },
-          })
-        }
-      }
+      navigateRuntimeIframeAr(navigate, scene)
     },
     [navigate]
   )

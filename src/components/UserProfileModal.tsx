@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { usePrivy, useWallets } from '@privy-io/react-auth'
 import { usePublicClient } from 'wagmi'
 import { formatEther } from 'viem'
@@ -9,6 +10,9 @@ import { pinIsAudioMemory } from '@/lib/memoryMedia'
 import { favouriteKey, readFavouriteKeys, toggleFavouriteKey } from '@/lib/memoryFavourites'
 import { loadOptimisticPins } from '@/lib/optimisticPinsStorage'
 import { MemoryPinFull, MemoryPinPeek } from '@/components/MemoryInspect'
+import { getCurrentPosition } from '@/lib/geo'
+import { fetchRuntimeActive, type RuntimeArScene } from '@/lib/runtimeActive'
+import { getRuntimeIframeSceneUrl, navigateRuntimeIframeAr } from '@/lib/navigateRuntimeAr'
 
 const indexerUrl = (import.meta.env.VITE_INDEXER_URL ?? 'http://localhost:8787').replace(/\/$/, '')
 
@@ -20,6 +24,7 @@ type Props = {
 }
 
 export function UserProfileModal({ open, onClose }: Props) {
+  const navigate = useNavigate()
   const { user } = usePrivy()
   const { wallets } = useWallets()
   const publicClient = usePublicClient()
@@ -28,6 +33,9 @@ export function UserProfileModal({ open, onClose }: Props) {
   const [myMemories, setMyMemories] = useState<MemoryPin[]>([])
   const [peekPin, setPeekPin] = useState<MemoryPin | null>(null)
   const [fullPin, setFullPin] = useState<MemoryPin | null>(null)
+  const [runtimeArScenes, setRuntimeArScenes] = useState<RuntimeArScene[]>([])
+  const [arScenesLoad, setArScenesLoad] = useState<'idle' | 'loading' | 'ok' | 'err'>('idle')
+  const [arScenesErr, setArScenesErr] = useState<string | null>(null)
   const addr = signingWallet?.address ?? ''
   const myAddress = addr ? (addr as `0x${string}`) : null
   const favOwnerKey = useMemo(() => (myAddress ? myAddress.toLowerCase() : 'guest'), [myAddress])
@@ -97,8 +105,51 @@ export function UserProfileModal({ open, onClose }: Props) {
     if (!open) {
       setPeekPin(null)
       setFullPin(null)
+      setRuntimeArScenes([])
+      setArScenesLoad('idle')
+      setArScenesErr(null)
     }
   }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    setArScenesLoad('loading')
+    setArScenesErr(null)
+    void getCurrentPosition()
+      .then((pos) => fetchRuntimeActive(pos.latitude, pos.longitude))
+      .then((r) => {
+        if (cancelled) return
+        const withUrl = (r.arScenes ?? []).filter((s) => Boolean(getRuntimeIframeSceneUrl(s)))
+        setRuntimeArScenes(withUrl)
+        setArScenesLoad('ok')
+      })
+      .catch(() => {
+        if (cancelled) return
+        setRuntimeArScenes([])
+        setArScenesLoad('err')
+        setArScenesErr('Allow location to list nearby AR scenes, or open the map and tap an orange pin.')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open])
+
+  const handleLeaveForAr = useCallback(() => {
+    setPeekPin(null)
+    setFullPin(null)
+    onClose()
+  }, [onClose])
+
+  const handleOpenRuntimeArScene = useCallback(
+    (scene: RuntimeArScene) => {
+      onClose()
+      queueMicrotask(() => {
+        navigateRuntimeIframeAr(navigate, scene)
+      })
+    },
+    [navigate, onClose]
+  )
 
   if (!open) return null
 
@@ -156,7 +207,7 @@ export function UserProfileModal({ open, onClose }: Props) {
               ))}
             </ul>
 
-            <h3 className="mem-profile-section-title">Your memories</h3>
+            <h3 className="mem-profile-section-title">Memory archive</h3>
             {myMemories.length === 0 ? (
               <p style={{ margin: 0, color: 'var(--mem-text-dim)', fontSize: 14 }}>
                 No memories yet. Mint one from the home screen.
@@ -195,6 +246,55 @@ export function UserProfileModal({ open, onClose }: Props) {
                 ))}
               </div>
             )}
+
+            <h3 className="mem-profile-section-title" style={{ marginTop: 22 }}>
+              AR scenes
+            </h3>
+            {arScenesLoad === 'loading' ? (
+              <p style={{ margin: 0, color: 'var(--mem-text-dim)', fontSize: 14 }}>Loading nearby scenes…</p>
+            ) : arScenesLoad === 'err' ? (
+              <p style={{ margin: 0, color: 'var(--mem-text-dim)', fontSize: 14, lineHeight: 1.45 }}>
+                {arScenesErr ?? 'Could not load scenes.'}{' '}
+                <button
+                  type="button"
+                  className="mem-btn mem-btn--ghost"
+                  style={{ marginTop: 8, padding: '6px 10px', fontSize: 13 }}
+                  onClick={() => navigate('/map')}
+                >
+                  Open map
+                </button>
+              </p>
+            ) : runtimeArScenes.length === 0 ? (
+              <p style={{ margin: 0, color: 'var(--mem-text-dim)', fontSize: 14, lineHeight: 1.45 }}>
+                No iframe AR scenes near you. Open the map to browse pins.
+                <button
+                  type="button"
+                  className="mem-btn mem-btn--ghost"
+                  style={{ marginTop: 8, display: 'block', padding: '6px 10px', fontSize: 13 }}
+                  onClick={() => navigate('/map')}
+                >
+                  Open map
+                </button>
+              </p>
+            ) : (
+              <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {runtimeArScenes.map((scene) => (
+                  <li key={scene.id}>
+                    <button
+                      type="button"
+                      className="mem-btn mem-btn--secondary"
+                      style={{ width: '100%', textAlign: 'left', justifyContent: 'flex-start' }}
+                      onClick={() => handleOpenRuntimeArScene(scene)}
+                    >
+                      {scene.name?.trim() ? scene.name : 'AR scene'}
+                      {scene.inRange === false ? (
+                        <span style={{ fontSize: 11, color: 'var(--mem-text-muted)', marginLeft: 8 }}>(far)</span>
+                      ) : null}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </div>
       </div>
@@ -209,6 +309,7 @@ export function UserProfileModal({ open, onClose }: Props) {
               onOpenDetail={() => setFullPin(peekPin)}
               isFavourite={favSet.has(favouriteKey(peekPin))}
               onToggleFavourite={() => handleToggleFavouriteFor(peekPin)}
+              onBeforeArNavigate={handleLeaveForAr}
             />
           </div>
         </div>
@@ -223,6 +324,7 @@ export function UserProfileModal({ open, onClose }: Props) {
           }}
           isFavourite={favSet.has(favouriteKey(fullPin))}
           onToggleFavourite={() => handleToggleFavouriteFor(fullPin)}
+          onBeforeArNavigate={handleLeaveForAr}
         />
       ) : null}
     </>
