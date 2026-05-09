@@ -16,8 +16,7 @@
       rel="stylesheet"
     />
     <title>Memoria</title>
-    <!-- 8th Wall: match threejs-world-effects-example load order (engine + XRExtras + Landing Page).
-         SLAM chunk hinted via data-preload-chunks; scripts expose XR8, XRExtras, LandingPage globals before /ar runs. -->
+    <!-- 8th Wall: engine + XRExtras (no Landing Page — its pipeline shows the branded splash and can block AR start). -->
     <script
       src="/external/xr/xr.js"
       async
@@ -27,10 +26,6 @@
     ></script>
     <script
       src="https://cdn.jsdelivr.net/npm/@8thwall/xrextras@1/dist/xrextras.js"
-      crossorigin="anonymous"
-    ></script>
-    <script
-      src="https://cdn.jsdelivr.net/npm/@8thwall/landing-page@1/dist/landing-page.js"
       crossorigin="anonymous"
     ></script>
   </head>

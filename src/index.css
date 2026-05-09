@@ -1028,17 +1028,19 @@ textarea:focus-visible {
 }
 
 /* Map memory peek + full-screen detail */
+/* Full-viewport dim layer when a pin is selected — black until replaced with hero imagery later */
 .mem-memory-peek-anchor {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  position: fixed;
+  inset: 0;
   z-index: 8;
   display: flex;
   justify-content: center;
+  align-items: flex-end;
   padding: 16px;
   padding-bottom: max(100px, env(safe-area-inset-bottom));
-  pointer-events: none;
+  box-sizing: border-box;
+  background: #000000;
+  pointer-events: auto;
 }
 
 .mem-memory-peek-anchor > * {

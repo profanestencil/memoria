@@ -6,6 +6,7 @@ import { distanceMeters } from '@/lib/geoAr'
 import { ensureXrViewportDom } from '@/lib/ensureXrViewportDom'
 import { loadXrEngine } from '@/lib/loadXrEngine'
 import { createAudioReactiveSphere, type AudioReactiveSphereHandle } from '@/lib/arAudioReactiveSphere'
+import { createMemoryImageCard } from '@/lib/arMemoryImageCard'
 import { ArIframeScene } from '@/screens/ArIframeScene'
 
 type LocationState = {
@@ -25,6 +26,7 @@ type XrBuiltContent = {
   anchor: THREE.Group
   plane: THREE.Mesh
   shadow: THREE.Mesh
+  tiltGroup?: THREE.Group
   audioHandle?: AudioReactiveSphereHandle
 }
 
@@ -40,14 +42,7 @@ type MachineState =
 
 type GeoFix = { lat: number; lng: number; accuracyM?: number }
 
-type Hit = {
-  position: THREE.Vector3
-  normal: THREE.Vector3
-}
-
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v))
-
-const dist3 = (a: THREE.Vector3, b: THREE.Vector3) => a.distanceTo(b)
 
 function ArMemoryXR({ state }: { state: LocationState }) {
   const navigate = useNavigate()
@@ -172,68 +167,8 @@ function ArMemoryXR({ state }: { state: LocationState }) {
   const sphereHandleRef = useRef<AudioReactiveSphereHandle | null>(null)
   const audioPlaybackStartedRef = useRef(false)
 
-  const hitWindowRef = useRef<{
-    frames: number
-    last: THREE.Vector3 | null
-    samples: THREE.Vector3[]
-    normal: THREE.Vector3 | null
-  }>({ frames: 0, last: null, samples: [], normal: null })
-
-  const getHitCenter = (): Hit | null => {
-    try {
-      const XR8Any = (globalThis as unknown as { XR8?: any }).XR8
-      if (!XR8Any?.XrController?.hitTest) return null
-      const hits = XR8Any.XrController.hitTest(0.5, 0.5)
-      if (!Array.isArray(hits) || hits.length === 0) return null
-      const h = hits[0] as any
-
-      const pos = h.position ?? h
-      const p = new THREE.Vector3(pos.x ?? 0, pos.y ?? 0, pos.z ?? 0)
-
-      // Prefer provided normal; fall back to +Y
-      const n0 = h.normal
-      const n = n0 ? new THREE.Vector3(n0.x ?? 0, n0.y ?? 1, n0.z ?? 0) : new THREE.Vector3(0, 1, 0)
-      if (n.lengthSq() < 1e-6) n.set(0, 1, 0)
-      n.normalize()
-
-      return { position: p, normal: n }
-    } catch {
-      return null
-    }
-  }
-
-  const resetHitWindow = () => {
-    hitWindowRef.current = { frames: 0, last: null, samples: [], normal: null }
-  }
-
-  const updateLocking = (hit: Hit | null) => {
-    const w = hitWindowRef.current
-    if (!hit) {
-      resetHitWindow()
-      return { stable: false, avg: null as THREE.Vector3 | null, normal: null as THREE.Vector3 | null }
-    }
-
-    if (hit.normal.y < 0.8) {
-      resetHitWindow()
-      return { stable: false, avg: null, normal: null }
-    }
-
-    if (w.last && dist3(w.last, hit.position) > 0.05) {
-      resetHitWindow()
-    }
-
-    w.frames += 1
-    w.last = hit.position.clone()
-    w.samples.push(hit.position.clone())
-    if (w.samples.length > 24) w.samples.shift()
-    w.normal = hit.normal.clone()
-
-    const stable = w.frames >= 20
-    if (!stable) return { stable: false, avg: null, normal: null }
-
-    const avg = w.samples.reduce((acc, v) => acc.add(v), new THREE.Vector3()).multiplyScalar(1 / w.samples.length)
-    return { stable: true, avg, normal: w.normal }
-  }
+  /** One-finger drag rotates the memory card (yaw/pitch), relative to camera-facing pose */
+  const imageDragRef = useRef({ yaw: 0, pitch: 0, active: false, lastX: 0, lastY: 0 })
 
   const ensureThreeSceneConfigured = (renderer: THREE.WebGLRenderer, scene: THREE.Scene) => {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
@@ -269,6 +204,7 @@ function ArMemoryXR({ state }: { state: LocationState }) {
     const audioHandle = await createAudioReactiveSphere({
       audioUrl: resolvedAudioUrl,
       loop: audioLoop,
+      useCameraFeedTexture: true,
     })
     scene.add(audioHandle.anchor)
     ensureThreeSceneConfigured(renderer, scene)
@@ -285,52 +221,18 @@ function ArMemoryXR({ state }: { state: LocationState }) {
 
     addArLighting(scene)
 
-    // Memory plane
-    const tex = await new Promise<THREE.Texture>((resolve, reject) => {
-      const loader = new THREE.TextureLoader()
-      loader.load(
-        resolvedImageUrl,
-        (t) => resolve(t),
-        undefined,
-        () => reject(new Error('Failed to load image'))
-      )
-    })
-    tex.colorSpace = THREE.SRGBColorSpace
+    const card = await createMemoryImageCard({ imageUrl: resolvedImageUrl })
+    card.anchor.visible = false
+    scene.add(card.anchor)
 
-    const planeH = 1.35
-    const planeW = planeH
-    const geo = new THREE.PlaneGeometry(planeW, planeH)
-    const mat = new THREE.MeshStandardMaterial({
-      map: tex,
-      side: THREE.DoubleSide,
-      transparent: true,
-      roughness: 0.35,
-      metalness: 0.1,
-      envMapIntensity: 0.8
-    })
-    const plane = new THREE.Mesh(geo, mat)
-    plane.castShadow = true
-
-    // Shadow catcher
-    const shadowGeo = new THREE.PlaneGeometry(3.5, 3.5)
-    const shadowMat = new THREE.ShadowMaterial({ opacity: 0.35 })
-    const shadow = new THREE.Mesh(shadowGeo, shadowMat)
-    shadow.rotation.x = -Math.PI / 2
-    shadow.receiveShadow = true
-
-    // Anchor group (positioned when placed)
-    const anchor = new THREE.Group()
-    anchor.add(shadow)
-    anchor.add(plane)
-
-    // Start hidden until placed
-    anchor.visible = false
-    scene.add(anchor)
-
-    // Warm up env map
     ensureThreeSceneConfigured(renderer, scene)
 
-    return { anchor, plane, shadow }
+    return {
+      anchor: card.anchor,
+      plane: card.plane,
+      shadow: card.shadow,
+      tiltGroup: card.tiltGroup,
+    }
   }
 
   // Geo + state machine driver
@@ -409,6 +311,65 @@ function ArMemoryXR({ state }: { state: LocationState }) {
     copyOverlay,
     debugEnabled,
   ])
+
+  /** Allow one-finger drag on the camera canvas for image-card rotation (otherwise AR raises canvas above UI with pointer-events: none). */
+  useEffect(() => {
+    const el = document.getElementById('camerafeed')
+    if (!el) return
+    if (ui.state === 'PLACED' && !isAudioAr) {
+      el.style.setProperty('pointer-events', 'auto', 'important')
+    } else {
+      el.style.setProperty('pointer-events', 'none', 'important')
+    }
+  }, [ui.state, isAudioAr])
+
+  const MAX_CARD_DRAG_YAW = 0.72
+  const MAX_CARD_DRAG_PITCH = 0.5
+  const CARD_DRAG_SENS = 0.0045
+
+  useEffect(() => {
+    if (ui.state !== 'PLACED' || isAudioAr) return
+    const el = document.getElementById('camerafeed')
+    if (!el) return
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return
+      const d = imageDragRef.current
+      d.active = true
+      d.lastX = e.touches[0].clientX
+      d.lastY = e.touches[0].clientY
+    }
+
+    const onTouchMove = (e: TouchEvent) => {
+      const d = imageDragRef.current
+      if (!d.active || e.touches.length !== 1) return
+      const x = e.touches[0].clientX
+      const y = e.touches[0].clientY
+      const dx = x - d.lastX
+      const dy = y - d.lastY
+      d.lastX = x
+      d.lastY = y
+      d.yaw = clamp(d.yaw + dx * CARD_DRAG_SENS, -MAX_CARD_DRAG_YAW, MAX_CARD_DRAG_YAW)
+      d.pitch = clamp(d.pitch - dy * CARD_DRAG_SENS, -MAX_CARD_DRAG_PITCH, MAX_CARD_DRAG_PITCH)
+      e.preventDefault()
+    }
+
+    const onTouchEnd = () => {
+      imageDragRef.current.active = false
+    }
+
+    el.addEventListener('touchstart', onTouchStart, { passive: true })
+    el.addEventListener('touchmove', onTouchMove, { passive: false })
+    el.addEventListener('touchend', onTouchEnd)
+    el.addEventListener('touchcancel', onTouchEnd)
+
+    return () => {
+      el.removeEventListener('touchstart', onTouchStart)
+      el.removeEventListener('touchmove', onTouchMove)
+      el.removeEventListener('touchend', onTouchEnd)
+      el.removeEventListener('touchcancel', onTouchEnd)
+    }
+  }, [ui.state, isAudioAr])
 
   // XR8 boot + render loop via pipeline module
   useEffect(() => {
@@ -568,6 +529,17 @@ function ArMemoryXR({ state }: { state: LocationState }) {
 
       let content: XrBuiltContent | null = null
 
+      const positionAudioVisualizerAnchor = () => {
+        if (!xrSceneRef.current || !content?.audioHandle) return
+        const cam = xrSceneRef.current.camera
+        const dir = new THREE.Vector3()
+        cam.getWorldDirection(dir)
+        const p = cam.position.clone().addScaledVector(dir, 1.35)
+        p.y = Math.max(0.12, cam.position.y - 1.25)
+        content.anchor.position.copy(p)
+        content.anchor.visible = true
+      }
+
       const logicModule = () => ({
         name: 'memoria-state-machine',
         onStart: async () => {
@@ -607,100 +579,91 @@ function ArMemoryXR({ state }: { state: LocationState }) {
             return
           }
 
-          const canvasEl = document.getElementById('camerafeed')
-          if (canvasEl) {
-            canvasEl.addEventListener('touchmove', (ev) => ev.preventDefault(), { passive: false })
-            canvasEl.addEventListener(
-              'touchstart',
-              (ev) => {
-                if (ev.touches.length === 1) {
-                  try {
-                    x.XrController?.recenter?.()
-                  } catch {
-                    // ignore
-                  }
-                }
-              },
-              true
-            )
+          // No plane scan: Landing Page was removed (splash blocked startup); audio + image both go straight to PLACED.
+          if (!content) return
+
+          if (!isAudioAr) {
+            imageDragRef.current = { yaw: 0, pitch: 0, active: false, lastX: 0, lastY: 0 }
+            content.anchor.visible = true
+            const now = Date.now()
+            placedRef.current = {
+              anchor: content.anchor,
+              plane: content.plane,
+              shadow: content.shadow,
+              baseY: 0,
+              placedAtMs: now,
+              dropAtMs: now,
+            }
+            setMachine('PLACED', null)
+            return
           }
 
-          // Once tracking is ready, we can scan for planes.
-          const gate = computeGate(geoRef.current)
-          setMachine(
-            'SCANNING_FOR_PLANE',
-            gate.nearHard ? copyOverlay.scan : copyOverlay.scanIndoor
-          )
+          content.anchor.visible = true
+          const nowAudio = Date.now()
+          placedRef.current = {
+            anchor: content.anchor,
+            plane: content.plane,
+            shadow: content.shadow,
+            baseY: content.plane.position.y,
+            placedAtMs: nowAudio,
+            dropAtMs: nowAudio,
+          }
+          setMachine('PLACED', null)
         },
         onUpdate: () => {
           if (stopped) return
           if (!xrSceneRef.current || !content) return
 
           const cur = machineRef.current
-          if (cur === 'SCANNING_FOR_PLANE') {
-            const hit = getHitCenter()
-            if (!hit) return
-            resetHitWindow()
-            setMachine('LOCKING_PLACEMENT', copyOverlay.locking)
-            return
-          }
-
-          if (cur === 'LOCKING_PLACEMENT') {
-            const hit = getHitCenter()
-            const locked = updateLocking(hit)
-            if (!locked.stable || !locked.avg || !locked.normal) return
-
-            // Place once
-            const { anchor, plane } = content
-            anchor.visible = true
-            anchor.position.copy(locked.avg)
-
-            const cam = xrSceneRef.current.camera as any
-            const camPos = cam?.position ? (cam.position as THREE.Vector3) : new THREE.Vector3(0, 0, 0)
-
-            // Image memory: billboard toward camera; audio sphere: symmetric — keep factory pose
-            if (!content.audioHandle) {
-              plane.position.set(0, 0.15, 0)
-              const look = new THREE.Vector3(camPos.x, locked.avg.y + 0.15, camPos.z)
-              plane.lookAt(look)
-              plane.rotation.x = 0
-              plane.rotation.z = 0
-            }
-
-            const now = Date.now()
-            placedRef.current = {
-              anchor,
-              plane,
-              shadow: content.shadow,
-              baseY: plane.position.y,
-              placedAtMs: now,
-              dropAtMs: now
-            }
-
-            setMachine('PLACED', null)
-            return
-          }
 
           if (cur === 'PLACED') {
             const p = placedRef.current
             if (!p) return
 
-            if (content.audioHandle && !audioPlaybackStartedRef.current) {
-              audioPlaybackStartedRef.current = true
-              void content.audioHandle.startPlayback()
+            // Audio: reactive sphere + optional camera texture (re-anchor each frame — no SLAM placement dependency)
+            if (content.audioHandle) {
+              positionAudioVisualizerAnchor()
+
+              if (!audioPlaybackStartedRef.current) {
+                audioPlaybackStartedRef.current = true
+                void content.audioHandle.startPlayback()
+              }
+              content.audioHandle.onFrame()
+
+              const t = (Date.now() - p.dropAtMs) / 1000
+
+              const dropT = clamp((Date.now() - p.dropAtMs) / 600, 0, 1)
+              const easeOut = 1 - (1 - dropT) * (1 - dropT)
+              const dropY = p.baseY + (1 - easeOut) * 0.4
+
+              const bob = Math.sin(t * Math.PI * 2 * 0.9) * 0.03
+              p.plane.position.y = dropY + bob
+              return
             }
-            content.audioHandle?.onFrame()
 
-            const t = (Date.now() - p.dropAtMs) / 1000
+            // Image card: fixed distance in front of camera, user yaw/pitch on tiltGroup, gentle bob
+            const cam = xrSceneRef.current.camera
+            const dist = 1.06
+            const dir = new THREE.Vector3()
+            cam.getWorldDirection(dir)
+            const pos = cam.position.clone().addScaledVector(dir, dist)
+            content.anchor.position.copy(pos)
+            const towardCam = new THREE.Vector3().subVectors(cam.position, content.anchor.position)
+            if (towardCam.lengthSq() > 1e-8) {
+              towardCam.normalize()
+              content.anchor.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), towardCam)
+            }
 
-            // Drop-in (first 0.6s)
-            const dropT = clamp((Date.now() - p.dropAtMs) / 600, 0, 1)
-            const easeOut = 1 - (1 - dropT) * (1 - dropT)
-            const dropY = p.baseY + (1 - easeOut) * 0.4
-
-            // Bob after drop (still ok to apply during drop)
-            const bob = Math.sin(t * Math.PI * 2 * 0.9) * 0.03
-            p.plane.position.y = dropY + bob
+            const tg = content.tiltGroup
+            if (tg) {
+              const drag = imageDragRef.current
+              tg.rotation.order = 'YXZ'
+              tg.rotation.y = drag.yaw
+              tg.rotation.x = drag.pitch
+              const tt = (Date.now() - p.dropAtMs) / 1000
+              const bob = Math.sin(tt * Math.PI * 2 * 0.88) * 0.038
+              tg.position.y = bob
+            }
             return
           }
         }
@@ -733,7 +696,6 @@ function ArMemoryXR({ state }: { state: LocationState }) {
         }
 
         const hostGlobals = globalThis as unknown as {
-          LandingPage?: { pipelineModule?: () => unknown }
           XRExtras?: {
             FullWindowCanvas?: { pipelineModule?: () => unknown }
             Loading?: { pipelineModule?: () => unknown }
@@ -744,7 +706,7 @@ function ArMemoryXR({ state }: { state: LocationState }) {
         pushDebug(
           `XR8 modules: GlTextureRenderer=${Boolean(x.GlTextureRenderer)} Threejs=${Boolean(x.Threejs)} XrController=${Boolean(
             x.XrController
-          )} LandingPage=${Boolean(hostGlobals.LandingPage)} XRExtras=${Boolean(hostGlobals.XRExtras)}`
+          )} XRExtras=${Boolean(hostGlobals.XRExtras)}`
         )
 
         const xrCanvas = ensureXrViewportDom()
@@ -844,27 +806,12 @@ function ArMemoryXR({ state }: { state: LocationState }) {
         pushMod(x.GlTextureRenderer?.pipelineModule?.())
         pushMod(x.Threejs?.pipelineModule?.())
         pushMod(x.XrController?.pipelineModule?.())
-        if (hostGlobals.LandingPage?.pipelineModule) {
-          try {
-            pushMod(hostGlobals.LandingPage.pipelineModule())
-            pushDebug('LandingPage.pipelineModule ok')
-          } catch (e) {
-            pushDebug(`LandingPage.pipelineModule skip: ${e instanceof Error ? e.message : String(e)}`)
-          }
-        }
         if (hostGlobals.XRExtras?.FullWindowCanvas?.pipelineModule) {
           try {
             pushMod(hostGlobals.XRExtras.FullWindowCanvas.pipelineModule())
             pushDebug('XRExtras.FullWindowCanvas ok')
           } catch (e) {
             pushDebug(`FullWindowCanvas skip: ${e instanceof Error ? e.message : String(e)}`)
-          }
-        }
-        if (hostGlobals.XRExtras?.Loading?.pipelineModule) {
-          try {
-            pushMod(hostGlobals.XRExtras.Loading.pipelineModule())
-          } catch {
-            // ignore
           }
         }
         if (hostGlobals.XRExtras?.RuntimeError?.pipelineModule) {
@@ -996,7 +943,6 @@ function ArMemoryXR({ state }: { state: LocationState }) {
       audioPlaybackStartedRef.current = false
       xrSceneRef.current = null
       placedRef.current = null
-      resetHitWindow()
     }
   }, [ui.state, copyOverlay, isAudioAr, resolvedImageUrl, resolvedAudioUrl, audioLoop, debugEnabled])
 

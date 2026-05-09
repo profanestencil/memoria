@@ -35,7 +35,7 @@ const waitForXrLoadedEvent = async (timeoutMs: number) => {
 /**
  * Loads the self-hosted 8th Wall Engine Binary (served from our domain) and resolves when `globalThis.XR8` exists.
  * If `index.html` already injected `script[data-8thwall="xr"]`, we only wait for XR8 (no duplicate script).
- * XRExtras + Landing Page are loaded via separate script tags (same as the official sample).
+ * XRExtras is loaded via a separate script tag (see `index.html`).
  */
 export const loadXrEngine = async (): Promise<XR8Global> => {
   if (getXR8()) return getXR8()!
