@@ -53,6 +53,14 @@ declare module "hardhat/types/runtime" {
       name: "MemoryArchive",
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.MemoryArchive__factory>;
+    getContractFactory(
+      name: "MemoryArchiveGeo",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.MemoryArchiveGeo__factory>;
+    getContractFactory(
+      name: "MemoryRegistry",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.MemoryRegistry__factory>;
 
     getContractAt(
       name: "Ownable",
@@ -104,6 +112,16 @@ declare module "hardhat/types/runtime" {
       address: string | ethers.Addressable,
       signer?: ethers.Signer
     ): Promise<Contracts.MemoryArchive>;
+    getContractAt(
+      name: "MemoryArchiveGeo",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.MemoryArchiveGeo>;
+    getContractAt(
+      name: "MemoryRegistry",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.MemoryRegistry>;
 
     deployContract(
       name: "Ownable",
@@ -145,6 +163,14 @@ declare module "hardhat/types/runtime" {
       name: "MemoryArchive",
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.MemoryArchive>;
+    deployContract(
+      name: "MemoryArchiveGeo",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.MemoryArchiveGeo>;
+    deployContract(
+      name: "MemoryRegistry",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.MemoryRegistry>;
 
     deployContract(
       name: "Ownable",
@@ -196,6 +222,16 @@ declare module "hardhat/types/runtime" {
       args: any[],
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.MemoryArchive>;
+    deployContract(
+      name: "MemoryArchiveGeo",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.MemoryArchiveGeo>;
+    deployContract(
+      name: "MemoryRegistry",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.MemoryRegistry>;
 
     // default types
     getContractFactory(

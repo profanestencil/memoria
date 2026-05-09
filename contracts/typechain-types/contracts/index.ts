@@ -2,3 +2,5 @@
 /* tslint:disable */
 /* eslint-disable */
 export type { MemoryArchive } from "./MemoryArchive";
+export type { MemoryArchiveGeo } from "./MemoryArchiveGeo";
+export type { MemoryRegistry } from "./MemoryRegistry";

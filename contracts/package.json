@@ -4,8 +4,13 @@
   "private": true,
   "scripts": {
     "compile": "hardhat compile",
+    "test": "hardhat test",
     "deploy:base-sepolia": "hardhat run scripts/deploy.js --network base-sepolia",
-    "deploy:base": "hardhat run scripts/deploy.js --network base"
+    "deploy:base": "hardhat run scripts/deploy.js --network base",
+    "deploy:memory-registry:base-sepolia": "hardhat run scripts/deploy-memory-registry.js --network base-sepolia",
+    "deploy:memory-registry:base": "hardhat run scripts/deploy-memory-registry.js --network base",
+    "deploy:memory-archive-geo:base-sepolia": "hardhat run scripts/deploy-memory-archive-geo.js --network base-sepolia",
+    "deploy:memory-archive-geo:base": "hardhat run scripts/deploy-memory-archive-geo.js --network base"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",

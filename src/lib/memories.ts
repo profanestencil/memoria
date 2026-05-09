@@ -1,5 +1,6 @@
 import { type PublicClient, decodeEventLog } from 'viem'
 import { MEMORY_ARCHIVE_ABI } from './abi/memory-archive'
+import { ipfsToHttp } from './storage'
 
 const contractAddress = import.meta.env.VITE_MEMORY_ARCHIVE_CONTRACT_ADDRESS as `0x${string}`
 
@@ -12,11 +13,6 @@ export interface MemoryMeta {
   latitude: number
   longitude: number
   captureTime?: string
-}
-
-function ipfsToHttp(uri: string): string {
-  if (uri.startsWith('ipfs://')) return `https://nftstorage.link/ipfs/${uri.slice(7)}`
-  return uri
 }
 
 export async function fetchMemoriesForAddress(
