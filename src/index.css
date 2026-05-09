@@ -242,12 +242,15 @@ body::before {
 }
 
 /*
- * 8th Wall: #arview (camera + WebGL) is a body sibling under #root. We keep #root above #arview
- * so UI can sit on top; the root fill must stay transparent (no fullscreen opaque layer on /ar).
- * WebKit often composites a TRANSPARENT fullscreen div above video/canvas as solid black — so
- * AR.tsx does not wrap the route in a full-viewport div, and we use #root pointer-events:none
- * with pointer-events:auto only on chrome (see inline styles on AR overlays).
+ * 8th Wall: `#camerafeed` canvas (threejs-world-effects-example) is a body sibling under #root.
+ * Keep #root above the canvas so UI sits on top; root stays transparent (see AR overlays pointer-events).
  */
+/* Hosted Illust / third-party AR in an iframe — dark shell (distinct from transparent 8th Wall stack). */
+html.mem-ar-iframe-shell,
+html.mem-ar-iframe-shell body {
+  background-color: #050504 !important;
+}
+
 html.mem-ar-stack {
   background-color: transparent !important;
 }
@@ -260,16 +263,18 @@ html.mem-ar-stack body::before {
   display: none !important;
 }
 
-html.mem-ar-stack #arview {
+html.mem-ar-stack #camerafeed {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100vw !important;
+  max-height: 100dvh !important;
   z-index: 2 !important;
   pointer-events: none !important;
   opacity: 1 !important;
   visibility: visible !important;
-}
-
-html.mem-ar-stack #overlayView3d {
-  opacity: 1 !important;
-  visibility: visible !important;
+  display: block !important;
 }
 
 html.mem-ar-stack #root {

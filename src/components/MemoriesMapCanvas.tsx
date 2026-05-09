@@ -440,12 +440,15 @@ export function MemoriesMapCanvas({
           }
         }
         if (iframeUrl) {
+          const la = Number(lat)
+          const lo = Number(lng)
+          if (!Number.isFinite(la) || !Number.isFinite(lo)) return
           navigate('/ar', {
             state: {
               mode: 'iframe' as const,
               iframeUrl,
-              latitude: lat,
-              longitude: lng,
+              latitude: la,
+              longitude: lo,
               geoRadiusM,
               sceneName: poi.name,
             },

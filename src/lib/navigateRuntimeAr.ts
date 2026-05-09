@@ -18,13 +18,17 @@ export const navigateRuntimeIframeAr = (
 ): boolean => {
   const iframeUrl = getRuntimeIframeSceneUrl(scene)
   if (!iframeUrl) return false
+  const lat = Number(scene.lat)
+  const lng = Number(scene.lng)
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false
+  const geoN = Number(scene.geoRadiusM)
   navigate('/ar', {
     state: {
       mode: 'iframe' as const,
       iframeUrl,
-      latitude: scene.lat,
-      longitude: scene.lng,
-      geoRadiusM: scene.geoRadiusM,
+      latitude: lat,
+      longitude: lng,
+      geoRadiusM: Number.isFinite(geoN) ? geoN : scene.geoRadiusM,
       sceneName: options?.sceneName ?? scene.name,
     },
   })
