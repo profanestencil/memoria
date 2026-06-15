@@ -3,8 +3,22 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#0a0908" />
+    <meta name="theme-color" content="#000000" />
     <title>Memoria — AR</title>
+    <script>
+      ;(function () {
+        var p = new URLSearchParams(location.search)
+        var u = p.get('imageUrl')
+        if (u) {
+          var l = document.createElement('link')
+          l.rel = 'preload'
+          l.as = 'image'
+          l.href = u
+          l.crossOrigin = 'anonymous'
+          document.head.appendChild(l)
+        }
+      })()
+    </script>
     <script
       src="/external/xr/xr.js"
       async
@@ -27,7 +41,7 @@
         width: 100%;
         height: 100%;
         overflow: hidden;
-        background: #0a0908;
+        background: #000;
         font-family: system-ui, -apple-system, sans-serif;
         color: #eae6e1;
       }
@@ -37,6 +51,34 @@
         width: 100%;
         height: 100%;
         touch-action: none;
+      }
+      .mem-ar-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        background: #000;
+        transition: opacity 0.45s ease, visibility 0.45s ease;
+      }
+      .mem-ar-splash--hidden {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+      }
+      .mem-ar-splash img {
+        width: min(148px, 42vw);
+        height: auto;
+        opacity: 0.96;
+      }
+      .mem-ar-splash__sub {
+        margin: 0;
+        font-size: 13px;
+        letter-spacing: 0.04em;
+        color: rgba(255, 255, 255, 0.42);
       }
       .mem-ar-chrome {
         position: fixed;
@@ -65,7 +107,7 @@
         position: absolute;
         left: 16px;
         right: 16px;
-        bottom: max(20px, env(safe-area-inset-bottom));
+        bottom: max(88px, calc(env(safe-area-inset-bottom) + 68px));
         max-width: 420px;
         margin: 0 auto;
         padding: 12px 14px;
@@ -81,6 +123,30 @@
       .mem-ar-chrome__hint--hidden {
         opacity: 0;
         pointer-events: none;
+      }
+      .mem-ar-meta {
+        position: absolute;
+        left: 16px;
+        right: 16px;
+        bottom: max(16px, env(safe-area-inset-bottom));
+        max-width: 420px;
+        margin: 0 auto;
+        text-align: center;
+        pointer-events: none;
+      }
+      .mem-ar-meta__title {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        color: rgba(255, 255, 255, 0.88);
+        text-shadow: 0 1px 8px rgba(0, 0, 0, 0.65);
+      }
+      .mem-ar-meta__creator {
+        margin: 4px 0 0;
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.52);
+        text-shadow: 0 1px 6px rgba(0, 0, 0, 0.55);
       }
       .mem-ar-chrome__error {
         position: absolute;
@@ -126,6 +192,11 @@
     </style>
   </head>
   <body>
+    <div id="splash" class="mem-ar-splash" aria-hidden="false">
+      <img src="/illust-logo-white.png" alt="illust." width="148" height="40" decoding="async" />
+      <p class="mem-ar-splash__sub">Loading memory…</p>
+    </div>
+
     <canvas id="camerafeed"></canvas>
 
     <div class="mem-ar-chrome" aria-live="polite">
@@ -135,6 +206,10 @@
       <p id="hint-line" class="mem-ar-chrome__hint mem-ar-chrome__hint--hidden">
         Move your phone slowly to find a surface
       </p>
+      <div id="meta-block" class="mem-ar-meta">
+        <p id="meta-title" class="mem-ar-meta__title"></p>
+        <p id="meta-creator" class="mem-ar-meta__creator"></p>
+      </div>
       <p id="error-line" class="mem-ar-chrome__error mem-ar-chrome__hidden" role="alert"></p>
     </div>
 
@@ -150,16 +225,33 @@
       const params = new URLSearchParams(window.location.search)
       const imageUrl = params.get('imageUrl') || ''
       const title = params.get('title') || 'Memory'
+      const creator = params.get('creator') || ''
+      const orientationParam = params.get('orientation')
+      const orientation =
+        orientationParam === 'landscape' || orientationParam === 'portrait'
+          ? orientationParam
+          : 'portrait'
 
       const canvas = document.getElementById('camerafeed')
       const hintLine = document.getElementById('hint-line')
       const errorLine = document.getElementById('error-line')
       const backBtn = document.getElementById('back-btn')
       const tapGate = document.getElementById('tap-gate')
+      const splash = document.getElementById('splash')
+      const metaTitle = document.getElementById('meta-title')
+      const metaCreator = document.getElementById('meta-creator')
 
       document.title = 'Memoria — ' + title
+      metaTitle.textContent = title
+      metaCreator.textContent = creator ? 'by ' + creator : ''
+
+      const hideSplash = () => {
+        splash.classList.add('mem-ar-splash--hidden')
+        splash.setAttribute('aria-hidden', 'true')
+      }
 
       const showError = (msg) => {
+        hideSplash()
         errorLine.textContent = msg
         errorLine.classList.remove('mem-ar-chrome__hidden')
         hintLine.classList.add('mem-ar-chrome__hint--hidden')
@@ -183,6 +275,98 @@
         if (window.history.length > 1) window.history.back()
         else window.location.href = '/map'
       })
+
+      /** Pre-built phone-camera aspect boards (meters). */
+      const CARD_TEMPLATES = {
+        portrait: { w: 0.54, h: 0.96, depth: 0.024 },
+        landscape: { w: 0.96, h: 0.54, depth: 0.024 },
+      }
+
+      const createCanvasNormalMap = (size = 256) => {
+        const c = document.createElement('canvas')
+        c.width = size
+        c.height = size
+        const ctx = c.getContext('2d')
+        const imgData = ctx.createImageData(size, size)
+        const d = imgData.data
+        for (let y = 0; y < size; y++) {
+          for (let x = 0; x < size; x++) {
+            const weave =
+              Math.sin(x * 0.36 + y * 0.08) * Math.sin(y * 0.34 + x * 0.05) * 0.07
+            const grain = ((x * 17 + y * 31) % 7) / 7 * 0.025 - 0.012
+            const nx = weave + grain * 0.6
+            const ny = grain - weave * 0.4
+            const nz = Math.sqrt(Math.max(0.05, 1 - nx * nx - ny * ny))
+            const i = (y * size + x) * 4
+            d[i] = Math.floor((nx * 0.5 + 0.5) * 255)
+            d[i + 1] = Math.floor((ny * 0.5 + 0.5) * 255)
+            d[i + 2] = Math.floor((nz * 0.5 + 0.5) * 255)
+            d[i + 3] = 255
+          }
+        }
+        ctx.putImageData(imgData, 0, 0)
+        const tex = new THREE.CanvasTexture(c)
+        tex.wrapS = THREE.RepeatWrapping
+        tex.wrapT = THREE.RepeatWrapping
+        tex.repeat.set(5, 5)
+        return tex
+      }
+
+      const canvasNormal = createCanvasNormalMap()
+
+      const buildPrebuiltBoard = (tex, orient) => {
+        const t = CARD_TEMPLATES[orient] || CARD_TEMPLATES.portrait
+        const { w, h, depth } = t
+
+        const frameMat = new THREE.MeshStandardMaterial({
+          color: 0x1a1714,
+          roughness: 0.84,
+          metalness: 0.02,
+        })
+        const backMat = new THREE.MeshStandardMaterial({
+          color: 0xd8d4cc,
+          roughness: 0.94,
+          metalness: 0,
+        })
+        const frontMat = new THREE.MeshStandardMaterial({
+          map: tex,
+          normalMap: canvasNormal,
+          normalScale: new THREE.Vector2(0.16, 0.16),
+          roughness: 0.58,
+          metalness: 0.02,
+        })
+
+        // BoxGeometry face order: +x, -x, +y, -y, +z (front), -z (back)
+        const board = new THREE.Mesh(
+          new THREE.BoxGeometry(w, h, depth),
+          [frameMat, frameMat, frameMat, frameMat, frontMat, backMat]
+        )
+        board.castShadow = true
+        board.receiveShadow = true
+
+        const tiltGroup = new THREE.Group()
+        tiltGroup.add(board)
+        return { tiltGroup, cardHeight: h }
+      }
+
+      const texturePromise = imageUrl
+        ? new Promise((resolve, reject) => {
+            const loader = new THREE.TextureLoader()
+            if (!imageUrl.startsWith('blob:') && !imageUrl.startsWith('data:')) {
+              loader.setCrossOrigin('anonymous')
+            }
+            loader.load(
+              imageUrl,
+              (tex) => {
+                tex.colorSpace = THREE.SRGBColorSpace
+                tex.anisotropy = 8
+                resolve(tex)
+              },
+              undefined,
+              () => reject(new Error('Could not load the memory image.'))
+            )
+          })
+        : null
 
       const requestMotionIfNeeded = async () => {
         const dm = window.DeviceMotionEvent
@@ -209,11 +393,18 @@
 
       let xrRunning = false
       let memoryAnchor = null
+      let tiltGroup = null
       let cardHeight = 1
       let phase = 'SCANNING'
       let baseY = 0
       let placedAtMs = 0
       let hitWindow = { frames: 0, samples: [], last: null, normal: null }
+
+      const drag = { yaw: 0, pitch: 0, active: false, moved: false, lastX: 0, lastY: 0 }
+      const MAX_YAW = 0.85
+      const MAX_PITCH = 0.55
+      const DRAG_SENS = 0.0042
+      const TAP_MOVE_PX = 10
 
       const dist3 = (a, b) => a.distanceTo(b)
 
@@ -286,53 +477,56 @@
         baseY = memoryAnchor.position.y
         placedAtMs = Date.now()
         phase = 'PLACED'
-        setHint('Placed in your space — walk around it. Tap to recenter.', true)
-        window.setTimeout(() => setHint('', false), 3500)
+        setHint('Drag to rotate · tap to recenter', true)
+        window.setTimeout(() => setHint('', false), 4000)
       }
 
-      const buildMemoryCard = (tex, w, h) => {
-        const thickness = 0.014
-        const halfT = thickness / 2
-        cardHeight = h
+      const bindTouchGestures = () => {
+        const onStart = (e) => {
+          if (phase !== 'PLACED' || e.touches.length !== 1) return
+          drag.active = true
+          drag.moved = false
+          drag.lastX = e.touches[0].clientX
+          drag.lastY = e.touches[0].clientY
+        }
 
-        const card = new THREE.Group()
+        const onMove = (e) => {
+          if (!drag.active || e.touches.length !== 1) return
+          const x = e.touches[0].clientX
+          const y = e.touches[0].clientY
+          const dx = x - drag.lastX
+          const dy = y - drag.lastY
+          if (!drag.moved && Math.hypot(dx, dy) < TAP_MOVE_PX) return
+          drag.moved = true
+          drag.lastX = x
+          drag.lastY = y
+          drag.yaw = Math.max(-MAX_YAW, Math.min(MAX_YAW, drag.yaw + dx * DRAG_SENS))
+          drag.pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, drag.pitch - dy * DRAG_SENS))
+          e.preventDefault()
+        }
 
-        const frontMat = new THREE.MeshStandardMaterial({
-          map: tex,
-          roughness: 0.38,
-          metalness: 0.05,
-          side: THREE.FrontSide,
-        })
-        const front = new THREE.Mesh(new THREE.PlaneGeometry(w, h), frontMat)
-        front.position.z = halfT
-        front.castShadow = true
-        front.receiveShadow = true
+        const onEnd = () => {
+          if (drag.active && !drag.moved && phase === 'PLACED') {
+            try {
+              window.XR8.XrController.recenter()
+            } catch {
+              /* ignore */
+            }
+          }
+          drag.active = false
+        }
 
-        const backMat = new THREE.MeshStandardMaterial({
-          color: 0xd8d4cc,
-          roughness: 0.92,
-          metalness: 0,
-          side: THREE.FrontSide,
-        })
-        const back = new THREE.Mesh(new THREE.PlaneGeometry(w, h), backMat)
-        back.position.z = -halfT
-        back.rotation.y = Math.PI
-        back.castShadow = true
-
-        const edgeMat = new THREE.MeshStandardMaterial({ color: 0x1a1714, roughness: 0.85 })
-        const edgeGeo = new THREE.BoxGeometry(w + 0.008, h + 0.008, thickness)
-        const frame = new THREE.Mesh(edgeGeo, edgeMat)
-        frame.castShadow = true
-
-        card.add(frame)
-        card.add(front)
-        card.add(back)
-        return card
+        canvas.addEventListener('touchstart', onStart, { passive: true })
+        canvas.addEventListener('touchmove', onMove, { passive: false })
+        canvas.addEventListener('touchend', onEnd)
+        canvas.addEventListener('touchcancel', onEnd)
       }
 
       const memorySceneModule = () => ({
         name: 'memoria-world-memory',
-        onStart: () => {
+        onStart: async () => {
+          hideSplash()
+
           const xrScene = window.XR8.Threejs.xrScene()
           const { scene, camera, renderer } = xrScene
 
@@ -370,33 +564,15 @@
           memoryAnchor.visible = false
           scene.add(memoryAnchor)
 
-          const loader = new THREE.TextureLoader()
-          if (!imageUrl.startsWith('blob:') && !imageUrl.startsWith('data:')) {
-            loader.setCrossOrigin('anonymous')
+          try {
+            const tex = await texturePromise
+            const built = buildPrebuiltBoard(tex, orientation)
+            tiltGroup = built.tiltGroup
+            cardHeight = built.cardHeight
+            memoryAnchor.add(tiltGroup)
+          } catch (e) {
+            showError(e instanceof Error ? e.message : 'Could not load the memory image.')
           }
-
-          loader.load(
-            imageUrl,
-            (tex) => {
-              tex.colorSpace = THREE.SRGBColorSpace
-              tex.anisotropy = 4
-              const img = tex.image
-              const iw = img?.width || 1
-              const ih = img?.height || 1
-              const aspect = iw / ih
-              const edge = 0.72
-              let w = edge
-              let h = edge / aspect
-              if (aspect < 1) {
-                h = edge
-                w = edge * aspect
-              }
-              const card = buildMemoryCard(tex, w, h)
-              memoryAnchor.add(card)
-            },
-            undefined,
-            () => showError('Could not load the memory image.')
-          )
 
           camera.position.set(0, 1.55, 0)
           window.XR8.XrController.updateCameraProjectionMatrix({
@@ -405,23 +581,21 @@
           })
 
           setHint('Point at the ground and move slowly to place “' + title + '”', true)
-
-          canvas.addEventListener(
-            'touchstart',
-            (e) => {
-              if (e.touches.length === 1) window.XR8.XrController.recenter()
-            },
-            true
-          )
-          canvas.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false })
+          bindTouchGestures()
         },
         onUpdate: () => {
           if (!memoryAnchor) return
 
           if (phase === 'PLACED') {
             const t = (Date.now() - placedAtMs) / 1000
-            const bob = Math.sin(t * Math.PI * 2 * 0.45) * 0.012
+            const bob = Math.sin(t * Math.PI * 2 * 0.38) * 0.02
+            const sway = Math.sin(t * Math.PI * 2 * 0.24) * 0.008
             memoryAnchor.position.y = baseY + bob
+            if (tiltGroup) {
+              tiltGroup.rotation.y = drag.yaw
+              tiltGroup.rotation.x = drag.pitch
+              tiltGroup.rotation.z = sway
+            }
             return
           }
 
@@ -438,6 +612,8 @@
             return
           }
 
+          if (!tiltGroup) return
+
           const { camera } = window.XR8.Threejs.xrScene()
           memoryAnchor.visible = true
           placeCardInWorld(lock.avg, lock.normal, camera)
@@ -445,6 +621,7 @@
       })
 
       const showTapGate = () => {
+        hideSplash()
         tapGate.classList.remove('mem-ar-chrome__hidden')
         const onTap = () => {
           tapGate.classList.add('mem-ar-chrome__hidden')
@@ -502,7 +679,6 @@
             x.Threejs.pipelineModule(),
             x.XrController.pipelineModule(),
             window.XRExtras.FullWindowCanvas.pipelineModule(),
-            window.XRExtras.Loading.pipelineModule(),
             window.XRExtras.RuntimeError.pipelineModule(),
             memorySceneModule(),
           ])
