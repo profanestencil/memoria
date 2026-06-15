@@ -10,6 +10,7 @@ import {
 import {
   buildArMemoryPageUrl,
   detectImageOrientation,
+  prefetchArBoardGlb,
   prefetchArImage,
 } from '@/lib/arMemoryPageUrl'
 import { requestArPermissions } from '@/lib/requestArPermissions'
@@ -248,6 +249,7 @@ const MemoryArEntryActions = ({
       onBeforeArNavigate?.()
       prefetchArImage(imageArUrl)
       const orientation = await detectImageOrientation(imageArUrl)
+      prefetchArBoardGlb(orientation)
       window.location.assign(
         buildArMemoryPageUrl({
           imageUrl: imageArUrl,

@@ -51,3 +51,13 @@ export const prefetchArImage = (imageUrl: string): void => {
   img.crossOrigin = 'anonymous'
   img.src = imageUrl
 }
+
+export const prefetchArBoardGlb = (orientation: ArMemoryOrientation = 'portrait'): void => {
+  const path =
+    orientation === 'landscape'
+      ? '/ar/memory-board-landscape.glb'
+      : '/ar/memory-board-portrait.glb'
+  void fetch(path, { mode: 'cors', credentials: 'same-origin' }).catch(() => {
+    /* ignore */
+  })
+}

@@ -17,6 +17,17 @@
           l.crossOrigin = 'anonymous'
           document.head.appendChild(l)
         }
+        var o = p.get('orientation')
+        var glb =
+          o === 'landscape'
+            ? '/ar/memory-board-landscape.glb'
+            : '/ar/memory-board-portrait.glb'
+        var g = document.createElement('link')
+        g.rel = 'preload'
+        g.as = 'fetch'
+        g.href = glb
+        g.crossOrigin = 'anonymous'
+        document.head.appendChild(g)
       })()
     </script>
     <script
@@ -219,6 +230,7 @@
 
     <script type="module">
       import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js'
+      import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/loaders/GLTFLoader.js'
 
       window.THREE = THREE
 
@@ -231,6 +243,15 @@
         orientationParam === 'landscape' || orientationParam === 'portrait'
           ? orientationParam
           : 'portrait'
+
+      const BOARD_GLB = {
+        portrait: '/ar/memory-board-portrait.glb',
+        landscape: '/ar/memory-board-landscape.glb',
+      }
+
+      /** World origin anchor — card sits on -Z in front of the SLAM origin (0,0,0). */
+      const PLACEMENT_DISTANCE = 1.62
+      const BILLBOARD_SMOOTH = 0.11
 
       const canvas = document.getElementById('camerafeed')
       const hintLine = document.getElementById('hint-line')
@@ -276,12 +297,6 @@
         else window.location.href = '/map'
       })
 
-      /** Pre-built phone-camera aspect boards (meters). */
-      const CARD_TEMPLATES = {
-        portrait: { w: 0.54, h: 0.96, depth: 0.024 },
-        landscape: { w: 0.96, h: 0.54, depth: 0.024 },
-      }
-
       const createCanvasNormalMap = (size = 256) => {
         const c = document.createElement('canvas')
         c.width = size
@@ -293,7 +308,7 @@
           for (let x = 0; x < size; x++) {
             const weave =
               Math.sin(x * 0.36 + y * 0.08) * Math.sin(y * 0.34 + x * 0.05) * 0.07
-            const grain = ((x * 17 + y * 31) % 7) / 7 * 0.025 - 0.012
+            const grain = (((x * 17 + y * 31) % 7) / 7) * 0.025 - 0.012
             const nx = weave + grain * 0.6
             const ny = grain - weave * 0.4
             const nz = Math.sqrt(Math.max(0.05, 1 - nx * nx - ny * ny))
@@ -314,39 +329,19 @@
 
       const canvasNormal = createCanvasNormalMap()
 
-      const buildPrebuiltBoard = (tex, orient) => {
-        const t = CARD_TEMPLATES[orient] || CARD_TEMPLATES.portrait
-        const { w, h, depth } = t
-
-        const frameMat = new THREE.MeshStandardMaterial({
-          color: 0x1a1714,
-          roughness: 0.84,
-          metalness: 0.02,
+      const applyPhotoTexture = (root, tex) => {
+        root.traverse((child) => {
+          if (!child.isMesh) return
+          const mats = Array.isArray(child.material) ? child.material : [child.material]
+          mats.forEach((mat) => {
+            if (mat?.name === 'Photo') {
+              mat.map = tex
+              mat.normalMap = canvasNormal
+              mat.normalScale = new THREE.Vector2(0.16, 0.16)
+              mat.needsUpdate = true
+            }
+          })
         })
-        const backMat = new THREE.MeshStandardMaterial({
-          color: 0xd8d4cc,
-          roughness: 0.94,
-          metalness: 0,
-        })
-        const frontMat = new THREE.MeshStandardMaterial({
-          map: tex,
-          normalMap: canvasNormal,
-          normalScale: new THREE.Vector2(0.16, 0.16),
-          roughness: 0.58,
-          metalness: 0.02,
-        })
-
-        // BoxGeometry face order: +x, -x, +y, -y, +z (front), -z (back)
-        const board = new THREE.Mesh(
-          new THREE.BoxGeometry(w, h, depth),
-          [frameMat, frameMat, frameMat, frameMat, frontMat, backMat]
-        )
-        board.castShadow = true
-        board.receiveShadow = true
-
-        const tiltGroup = new THREE.Group()
-        tiltGroup.add(board)
-        return { tiltGroup, cardHeight: h }
       }
 
       const texturePromise = imageUrl
@@ -367,6 +362,21 @@
             )
           })
         : null
+
+      const boardPromise = new Promise((resolve, reject) => {
+        const loader = new GLTFLoader()
+        loader.load(
+          BOARD_GLB[orientation] || BOARD_GLB.portrait,
+          (gltf) => resolve(gltf),
+          undefined,
+          () => reject(new Error('Could not load the memory board model.'))
+        )
+      })
+
+      const assetsPromise =
+        texturePromise && boardPromise
+          ? Promise.all([texturePromise, boardPromise])
+          : null
 
       const requestMotionIfNeeded = async () => {
         const dm = window.DeviceMotionEvent
@@ -394,11 +404,10 @@
       let xrRunning = false
       let memoryAnchor = null
       let tiltGroup = null
-      let cardHeight = 1
-      let phase = 'SCANNING'
-      let baseY = 0
+      let phase = 'LOADING'
       let placedAtMs = 0
-      let hitWindow = { frames: 0, samples: [], last: null, normal: null }
+      const billboardHelper = new THREE.Object3D()
+      const faceDir = new THREE.Vector3()
 
       const drag = { yaw: 0, pitch: 0, active: false, moved: false, lastX: 0, lastY: 0 }
       const MAX_YAW = 0.85
@@ -406,77 +415,12 @@
       const DRAG_SENS = 0.0042
       const TAP_MOVE_PX = 10
 
-      const dist3 = (a, b) => a.distanceTo(b)
-
-      const getHitCenter = () => {
-        try {
-          const hits = window.XR8?.XrController?.hitTest?.(0.5, 0.5)
-          if (!Array.isArray(hits) || hits.length === 0) return null
-          const h = hits[0]
-          const pos = h.position ?? h
-          const p = new THREE.Vector3(pos.x ?? 0, pos.y ?? 0, pos.z ?? 0)
-          const n0 = h.normal
-          const n = n0
-            ? new THREE.Vector3(n0.x ?? 0, n0.y ?? 1, n0.z ?? 0)
-            : new THREE.Vector3(0, 1, 0)
-          if (n.lengthSq() < 1e-6) n.set(0, 1, 0)
-          n.normalize()
-          return { position: p, normal: n }
-        } catch {
-          return null
-        }
-      }
-
-      const resetHitWindow = () => {
-        hitWindow = { frames: 0, samples: [], last: null, normal: null }
-      }
-
-      const updateLocking = (hit) => {
-        if (!hit) {
-          resetHitWindow()
-          return { stable: false, avg: null, normal: null }
-        }
-        if (hit.normal.y < 0.75) {
-          resetHitWindow()
-          return { stable: false, avg: null, normal: null }
-        }
-        if (hitWindow.last && dist3(hitWindow.last, hit.position) > 0.06) {
-          resetHitWindow()
-        }
-        hitWindow.frames += 1
-        hitWindow.last = hit.position.clone()
-        hitWindow.samples.push(hit.position.clone())
-        if (hitWindow.samples.length > 18) hitWindow.samples.shift()
-        hitWindow.normal = hit.normal.clone()
-        const stable = hitWindow.frames >= 14
-        if (!stable) return { stable: false, avg: null, normal: null }
-        const avg = hitWindow.samples
-          .reduce((acc, v) => acc.add(v), new THREE.Vector3())
-          .multiplyScalar(1 / hitWindow.samples.length)
-        return { stable: true, avg, normal: hitWindow.normal }
-      }
-
-      const placeCardInWorld = (point, normal, camera) => {
+      const placeAtOrigin = () => {
         if (!memoryAnchor) return
-        const up = normal.clone().normalize()
-        const face = new THREE.Vector3().subVectors(camera.position, point)
-        face.y = 0
-        if (face.lengthSq() < 1e-6) face.set(0, 0, -1)
-        face.normalize()
-
-        const target = point.clone().addScaledVector(up, cardHeight * 0.5 + 0.02)
-        memoryAnchor.position.copy(target)
-
-        const m = new THREE.Matrix4()
-        const z = face.clone()
-        const x = new THREE.Vector3().crossVectors(up, z).normalize()
-        const y = new THREE.Vector3().crossVectors(z, x).normalize()
-        m.makeBasis(x, y, z)
-        memoryAnchor.quaternion.setFromRotationMatrix(m)
-
-        baseY = memoryAnchor.position.y
-        placedAtMs = Date.now()
+        memoryAnchor.position.set(0, 0, -PLACEMENT_DISTANCE)
+        memoryAnchor.visible = true
         phase = 'PLACED'
+        placedAtMs = Date.now()
         setHint('Drag to rotate · tap to recenter', true)
         window.setTimeout(() => setHint('', false), 4000)
       }
@@ -509,6 +453,7 @@
           if (drag.active && !drag.moved && phase === 'PLACED') {
             try {
               window.XR8.XrController.recenter()
+              memoryAnchor.position.set(0, 0, -PLACEMENT_DISTANCE)
             } catch {
               /* ignore */
             }
@@ -528,7 +473,7 @@
           hideSplash()
 
           const xrScene = window.XR8.Threejs.xrScene()
-          const { scene, camera, renderer } = xrScene
+          const { scene, renderer } = xrScene
 
           renderer.shadowMap.enabled = true
           renderer.shadowMap.type = THREE.PCFSoftShadowMap
@@ -539,84 +484,52 @@
           const hemi = new THREE.HemisphereLight(0xfff8ee, 0x2a2520, 0.55)
           scene.add(hemi)
 
-          const sun = new THREE.DirectionalLight(0xffffff, 1.1)
-          sun.position.set(3, 6, 2)
+          const sun = new THREE.DirectionalLight(0xffffff, 1.05)
+          sun.position.set(2, 4, 1)
           sun.castShadow = true
-          sun.shadow.mapSize.set(1024, 1024)
-          sun.shadow.camera.near = 0.2
-          sun.shadow.camera.far = 18
-          sun.shadow.camera.left = -5
-          sun.shadow.camera.right = 5
-          sun.shadow.camera.top = 5
-          sun.shadow.camera.bottom = -5
+          sun.shadow.mapSize.set(512, 512)
           sun.shadow.bias = -0.0004
           scene.add(sun)
-
-          const ground = new THREE.Mesh(
-            new THREE.PlaneGeometry(24, 24),
-            new THREE.ShadowMaterial({ opacity: 0.38 })
-          )
-          ground.rotation.x = -Math.PI / 2
-          ground.receiveShadow = true
-          scene.add(ground)
 
           memoryAnchor = new THREE.Group()
           memoryAnchor.visible = false
           scene.add(memoryAnchor)
 
+          tiltGroup = new THREE.Group()
+          tiltGroup.rotation.order = 'YXZ'
+          memoryAnchor.add(tiltGroup)
+
           try {
-            const tex = await texturePromise
-            const built = buildPrebuiltBoard(tex, orientation)
-            tiltGroup = built.tiltGroup
-            cardHeight = built.cardHeight
-            memoryAnchor.add(tiltGroup)
+            const [tex, gltf] = await assetsPromise
+            applyPhotoTexture(gltf.scene, tex)
+            tiltGroup.add(gltf.scene)
+            placeAtOrigin()
           } catch (e) {
-            showError(e instanceof Error ? e.message : 'Could not load the memory image.')
+            showError(e instanceof Error ? e.message : 'Could not load the memory.')
           }
 
-          camera.position.set(0, 1.55, 0)
-          window.XR8.XrController.updateCameraProjectionMatrix({
-            origin: camera.position,
-            facing: camera.quaternion,
-          })
-
-          setHint('Point at the ground and move slowly to place “' + title + '”', true)
           bindTouchGestures()
         },
         onUpdate: () => {
-          if (!memoryAnchor) return
-
-          if (phase === 'PLACED') {
-            const t = (Date.now() - placedAtMs) / 1000
-            const bob = Math.sin(t * Math.PI * 2 * 0.38) * 0.02
-            const sway = Math.sin(t * Math.PI * 2 * 0.24) * 0.008
-            memoryAnchor.position.y = baseY + bob
-            if (tiltGroup) {
-              tiltGroup.rotation.y = drag.yaw
-              tiltGroup.rotation.x = drag.pitch
-              tiltGroup.rotation.z = sway
-            }
-            return
-          }
-
-          const hit = getHitCenter()
-          const lock = updateLocking(hit)
-          if (!lock.stable || !lock.avg || !lock.normal) {
-            if (!hit) {
-              setHint('Scan the floor or a flat surface…', true)
-            } else if (hit.normal.y < 0.75) {
-              setHint('Aim at a horizontal surface', true)
-            } else {
-              setHint('Hold steady…', true)
-            }
-            return
-          }
-
-          if (!tiltGroup) return
+          if (!memoryAnchor || phase !== 'PLACED' || !tiltGroup) return
 
           const { camera } = window.XR8.Threejs.xrScene()
-          memoryAnchor.visible = true
-          placeCardInWorld(lock.avg, lock.normal, camera)
+
+          faceDir.subVectors(camera.position, memoryAnchor.position)
+          if (faceDir.lengthSq() > 1e-8) {
+            faceDir.normalize()
+            billboardHelper.position.copy(memoryAnchor.position)
+            billboardHelper.lookAt(camera.position)
+            memoryAnchor.quaternion.slerp(billboardHelper.quaternion, BILLBOARD_SMOOTH)
+          }
+
+          const t = (Date.now() - placedAtMs) / 1000
+          const bob = Math.sin(t * Math.PI * 2 * 0.35) * 0.016
+          const sway = Math.sin(t * Math.PI * 2 * 0.22) * 0.006
+          tiltGroup.position.y = bob
+          tiltGroup.rotation.y = drag.yaw
+          tiltGroup.rotation.x = drag.pitch
+          tiltGroup.rotation.z = sway
         },
       })
 
