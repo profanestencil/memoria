@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0a0908" />
     <title>Memoria — AR</title>
-    <!-- Match https://github.com/8thwall/threejs-world-effects-example -->
     <script
       src="/external/xr/xr.js"
       async
@@ -61,45 +60,68 @@
         position: absolute;
         top: max(12px, env(safe-area-inset-top));
         left: 12px;
-        display: flex;
-        gap: 8px;
       }
-      .mem-ar-chrome__bottom {
+      .mem-ar-chrome__hint {
         position: absolute;
         left: 16px;
         right: 16px;
         bottom: max(20px, env(safe-area-inset-bottom));
         max-width: 420px;
         margin: 0 auto;
-        pointer-events: auto;
-      }
-      .mem-ar-chrome__panel {
-        background: rgba(8, 7, 6, 0.88);
-        border: 1px solid rgba(255, 255, 255, 0.14);
+        padding: 12px 14px;
         border-radius: 14px;
-        padding: 14px;
-      }
-      .mem-ar-chrome__panel p {
-        margin: 0 0 12px;
+        background: rgba(8, 7, 6, 0.78);
+        border: 1px solid rgba(255, 255, 255, 0.14);
         font-size: 14px;
         line-height: 1.45;
-        color: rgba(255, 255, 255, 0.9);
+        text-align: center;
+        color: rgba(255, 255, 255, 0.92);
+        transition: opacity 0.25s ease;
       }
-      .mem-ar-chrome__primary {
-        width: 100%;
-        border: none;
-        background: linear-gradient(165deg, #e8c547, #a67c1a);
-        color: #1a1510;
-        padding: 14px;
-        font-weight: 700;
+      .mem-ar-chrome__hint--hidden {
+        opacity: 0;
+        pointer-events: none;
       }
       .mem-ar-chrome__error {
-        color: #f0a0a0;
-        font-size: 13px;
-        margin-top: 10px;
+        position: absolute;
+        left: 16px;
+        right: 16px;
+        bottom: max(20px, env(safe-area-inset-bottom));
+        max-width: 420px;
+        margin: 0 auto;
+        padding: 14px;
+        border-radius: 14px;
+        background: rgba(80, 28, 28, 0.55);
+        border: 1px solid rgba(240, 160, 160, 0.22);
+        color: #ffd4d4;
+        font-size: 14px;
+        line-height: 1.45;
+        text-align: center;
       }
       .mem-ar-chrome__hidden {
         display: none !important;
+      }
+      .mem-ar-tap-gate {
+        position: fixed;
+        inset: 0;
+        z-index: 30;
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+        padding: max(24px, env(safe-area-inset-bottom)) 20px;
+        background: rgba(6, 5, 4, 0.55);
+        pointer-events: auto;
+      }
+      .mem-ar-tap-gate__panel {
+        width: 100%;
+        max-width: 420px;
+        padding: 16px;
+        border-radius: 14px;
+        background: rgba(8, 7, 6, 0.92);
+        border: 1px solid rgba(232, 197, 71, 0.35);
+        text-align: center;
+        font-size: 15px;
+        line-height: 1.45;
       }
     </style>
   </head>
@@ -110,15 +132,14 @@
       <div class="mem-ar-chrome__top">
         <button type="button" id="back-btn" aria-label="Back to map">← Map</button>
       </div>
-      <div class="mem-ar-chrome__bottom" id="start-panel">
-        <div class="mem-ar-chrome__panel">
-          <p id="start-copy">Loading AR engine…</p>
-          <button type="button" class="mem-ar-chrome__primary mem-ar-chrome__hidden" id="start-btn">
-            Tap to start AR
-          </button>
-          <p class="mem-ar-chrome__error mem-ar-chrome__hidden" id="error-line" role="alert"></p>
-        </div>
-      </div>
+      <p id="hint-line" class="mem-ar-chrome__hint mem-ar-chrome__hint--hidden">
+        Move your phone slowly to find a surface
+      </p>
+      <p id="error-line" class="mem-ar-chrome__error mem-ar-chrome__hidden" role="alert"></p>
+    </div>
+
+    <div id="tap-gate" class="mem-ar-tap-gate mem-ar-chrome__hidden" role="button" tabindex="0">
+      <div class="mem-ar-tap-gate__panel">Tap to start the camera</div>
     </div>
 
     <script type="module">
@@ -131,26 +152,26 @@
       const title = params.get('title') || 'Memory'
 
       const canvas = document.getElementById('camerafeed')
-      const startBtn = document.getElementById('start-btn')
-      const startPanel = document.getElementById('start-panel')
-      const startCopy = document.getElementById('start-copy')
+      const hintLine = document.getElementById('hint-line')
       const errorLine = document.getElementById('error-line')
       const backBtn = document.getElementById('back-btn')
+      const tapGate = document.getElementById('tap-gate')
 
       document.title = 'Memoria — ' + title
 
       const showError = (msg) => {
-        startCopy.textContent = 'AR could not start'
         errorLine.textContent = msg
         errorLine.classList.remove('mem-ar-chrome__hidden')
-        startBtn.classList.remove('mem-ar-chrome__hidden')
-        startBtn.disabled = false
-        startBtn.textContent = 'Try again'
+        hintLine.classList.add('mem-ar-chrome__hint--hidden')
+      }
+
+      const setHint = (msg, visible = true) => {
+        hintLine.textContent = msg
+        hintLine.classList.toggle('mem-ar-chrome__hint--hidden', !visible)
       }
 
       if (!imageUrl) {
-        startCopy.textContent = 'No memory image. Open this view from a map pin.'
-        startBtn.classList.add('mem-ar-chrome__hidden')
+        showError('No memory image. Open this view from a map pin.')
       }
 
       backBtn.addEventListener('click', () => {
@@ -176,36 +197,177 @@
         }
       }
 
+      const isPermissionError = (e) => {
+        const msg = (e instanceof Error ? e.message : String(e)).toLowerCase()
+        return (
+          msg.includes('permission') ||
+          msg.includes('notallowed') ||
+          msg.includes('denied') ||
+          msg.includes('gesture')
+        )
+      }
+
       let xrRunning = false
       let memoryAnchor = null
-      let memoryMesh = null
+      let cardHeight = 1
+      let phase = 'SCANNING'
+      let baseY = 0
+      let placedAtMs = 0
+      let hitWindow = { frames: 0, samples: [], last: null, normal: null }
+
+      const dist3 = (a, b) => a.distanceTo(b)
+
+      const getHitCenter = () => {
+        try {
+          const hits = window.XR8?.XrController?.hitTest?.(0.5, 0.5)
+          if (!Array.isArray(hits) || hits.length === 0) return null
+          const h = hits[0]
+          const pos = h.position ?? h
+          const p = new THREE.Vector3(pos.x ?? 0, pos.y ?? 0, pos.z ?? 0)
+          const n0 = h.normal
+          const n = n0
+            ? new THREE.Vector3(n0.x ?? 0, n0.y ?? 1, n0.z ?? 0)
+            : new THREE.Vector3(0, 1, 0)
+          if (n.lengthSq() < 1e-6) n.set(0, 1, 0)
+          n.normalize()
+          return { position: p, normal: n }
+        } catch {
+          return null
+        }
+      }
+
+      const resetHitWindow = () => {
+        hitWindow = { frames: 0, samples: [], last: null, normal: null }
+      }
+
+      const updateLocking = (hit) => {
+        if (!hit) {
+          resetHitWindow()
+          return { stable: false, avg: null, normal: null }
+        }
+        if (hit.normal.y < 0.75) {
+          resetHitWindow()
+          return { stable: false, avg: null, normal: null }
+        }
+        if (hitWindow.last && dist3(hitWindow.last, hit.position) > 0.06) {
+          resetHitWindow()
+        }
+        hitWindow.frames += 1
+        hitWindow.last = hit.position.clone()
+        hitWindow.samples.push(hit.position.clone())
+        if (hitWindow.samples.length > 18) hitWindow.samples.shift()
+        hitWindow.normal = hit.normal.clone()
+        const stable = hitWindow.frames >= 14
+        if (!stable) return { stable: false, avg: null, normal: null }
+        const avg = hitWindow.samples
+          .reduce((acc, v) => acc.add(v), new THREE.Vector3())
+          .multiplyScalar(1 / hitWindow.samples.length)
+        return { stable: true, avg, normal: hitWindow.normal }
+      }
+
+      const placeCardInWorld = (point, normal, camera) => {
+        if (!memoryAnchor) return
+        const up = normal.clone().normalize()
+        const face = new THREE.Vector3().subVectors(camera.position, point)
+        face.y = 0
+        if (face.lengthSq() < 1e-6) face.set(0, 0, -1)
+        face.normalize()
+
+        const target = point.clone().addScaledVector(up, cardHeight * 0.5 + 0.02)
+        memoryAnchor.position.copy(target)
+
+        const m = new THREE.Matrix4()
+        const z = face.clone()
+        const x = new THREE.Vector3().crossVectors(up, z).normalize()
+        const y = new THREE.Vector3().crossVectors(z, x).normalize()
+        m.makeBasis(x, y, z)
+        memoryAnchor.quaternion.setFromRotationMatrix(m)
+
+        baseY = memoryAnchor.position.y
+        placedAtMs = Date.now()
+        phase = 'PLACED'
+        setHint('Placed in your space — walk around it. Tap to recenter.', true)
+        window.setTimeout(() => setHint('', false), 3500)
+      }
+
+      const buildMemoryCard = (tex, w, h) => {
+        const thickness = 0.014
+        const halfT = thickness / 2
+        cardHeight = h
+
+        const card = new THREE.Group()
+
+        const frontMat = new THREE.MeshStandardMaterial({
+          map: tex,
+          roughness: 0.38,
+          metalness: 0.05,
+          side: THREE.FrontSide,
+        })
+        const front = new THREE.Mesh(new THREE.PlaneGeometry(w, h), frontMat)
+        front.position.z = halfT
+        front.castShadow = true
+        front.receiveShadow = true
+
+        const backMat = new THREE.MeshStandardMaterial({
+          color: 0xd8d4cc,
+          roughness: 0.92,
+          metalness: 0,
+          side: THREE.FrontSide,
+        })
+        const back = new THREE.Mesh(new THREE.PlaneGeometry(w, h), backMat)
+        back.position.z = -halfT
+        back.rotation.y = Math.PI
+        back.castShadow = true
+
+        const edgeMat = new THREE.MeshStandardMaterial({ color: 0x1a1714, roughness: 0.85 })
+        const edgeGeo = new THREE.BoxGeometry(w + 0.008, h + 0.008, thickness)
+        const frame = new THREE.Mesh(edgeGeo, edgeMat)
+        frame.castShadow = true
+
+        card.add(frame)
+        card.add(front)
+        card.add(back)
+        return card
+      }
 
       const memorySceneModule = () => ({
-        name: 'memoria-memory-plane',
+        name: 'memoria-world-memory',
         onStart: () => {
           const xrScene = window.XR8.Threejs.xrScene()
           const { scene, camera, renderer } = xrScene
 
           renderer.shadowMap.enabled = true
+          renderer.shadowMap.type = THREE.PCFSoftShadowMap
           scene.background = null
           renderer.autoClear = false
           renderer.setClearColor(0x000000, 0)
 
-          const hemi = new THREE.HemisphereLight(0xffffff, 0x202020, 0.55)
+          const hemi = new THREE.HemisphereLight(0xfff8ee, 0x2a2520, 0.55)
           scene.add(hemi)
 
-          const dir = new THREE.DirectionalLight(0xffffff, 0.9)
-          dir.position.set(2, 4, 1)
-          dir.castShadow = true
-          scene.add(dir)
+          const sun = new THREE.DirectionalLight(0xffffff, 1.1)
+          sun.position.set(3, 6, 2)
+          sun.castShadow = true
+          sun.shadow.mapSize.set(1024, 1024)
+          sun.shadow.camera.near = 0.2
+          sun.shadow.camera.far = 18
+          sun.shadow.camera.left = -5
+          sun.shadow.camera.right = 5
+          sun.shadow.camera.top = 5
+          sun.shadow.camera.bottom = -5
+          sun.shadow.bias = -0.0004
+          scene.add(sun)
 
-          const groundGeo = new THREE.PlaneGeometry(20, 20)
-          groundGeo.rotateX(-Math.PI / 2)
-          const ground = new THREE.Mesh(groundGeo, new THREE.ShadowMaterial({ opacity: 0.35 }))
+          const ground = new THREE.Mesh(
+            new THREE.PlaneGeometry(24, 24),
+            new THREE.ShadowMaterial({ opacity: 0.38 })
+          )
+          ground.rotation.x = -Math.PI / 2
           ground.receiveShadow = true
           scene.add(ground)
 
           memoryAnchor = new THREE.Group()
+          memoryAnchor.visible = false
           scene.add(memoryAnchor)
 
           const loader = new THREE.TextureLoader()
@@ -217,37 +379,32 @@
             imageUrl,
             (tex) => {
               tex.colorSpace = THREE.SRGBColorSpace
+              tex.anisotropy = 4
               const img = tex.image
               const iw = img?.width || 1
               const ih = img?.height || 1
               const aspect = iw / ih
-              const edge = 1.25
+              const edge = 0.72
               let w = edge
               let h = edge / aspect
               if (aspect < 1) {
                 h = edge
                 w = edge * aspect
               }
-              const mat = new THREE.MeshBasicMaterial({
-                map: tex,
-                side: THREE.DoubleSide,
-                transparent: true,
-              })
-              memoryMesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat)
-              memoryMesh.castShadow = true
-              memoryAnchor.add(memoryMesh)
+              const card = buildMemoryCard(tex, w, h)
+              memoryAnchor.add(card)
             },
             undefined,
-            () => {
-              showError('Could not load the memory image.')
-            }
+            () => showError('Could not load the memory image.')
           )
 
-          camera.position.set(0, 1.6, 0)
+          camera.position.set(0, 1.55, 0)
           window.XR8.XrController.updateCameraProjectionMatrix({
             origin: camera.position,
             facing: camera.quaternion,
           })
+
+          setHint('Point at the ground and move slowly to place “' + title + '”', true)
 
           canvas.addEventListener(
             'touchstart',
@@ -256,41 +413,59 @@
             },
             true
           )
-
-          canvas.addEventListener(
-            'touchmove',
-            (e) => {
-              e.preventDefault()
-            },
-            { passive: false }
-          )
+          canvas.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false })
         },
         onUpdate: () => {
-          if (!memoryAnchor || !memoryMesh) return
-          const { camera } = window.XR8.Threejs.xrScene()
-          const dist = 1.15
-          const dir = new THREE.Vector3()
-          camera.getWorldDirection(dir)
-          const pos = camera.position.clone().addScaledVector(dir, dist)
-          memoryAnchor.position.copy(pos)
-          const toward = new THREE.Vector3().subVectors(camera.position, memoryAnchor.position)
-          if (toward.lengthSq() > 1e-8) {
-            toward.normalize()
-            memoryAnchor.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), toward)
+          if (!memoryAnchor) return
+
+          if (phase === 'PLACED') {
+            const t = (Date.now() - placedAtMs) / 1000
+            const bob = Math.sin(t * Math.PI * 2 * 0.45) * 0.012
+            memoryAnchor.position.y = baseY + bob
+            return
           }
+
+          const hit = getHitCenter()
+          const lock = updateLocking(hit)
+          if (!lock.stable || !lock.avg || !lock.normal) {
+            if (!hit) {
+              setHint('Scan the floor or a flat surface…', true)
+            } else if (hit.normal.y < 0.75) {
+              setHint('Aim at a horizontal surface', true)
+            } else {
+              setHint('Hold steady…', true)
+            }
+            return
+          }
+
+          const { camera } = window.XR8.Threejs.xrScene()
+          memoryAnchor.visible = true
+          placeCardInWorld(lock.avg, lock.normal, camera)
         },
       })
+
+      const showTapGate = () => {
+        tapGate.classList.remove('mem-ar-chrome__hidden')
+        const onTap = () => {
+          tapGate.classList.add('mem-ar-chrome__hidden')
+          void startXr()
+        }
+        tapGate.addEventListener('click', onTap, { once: true })
+        tapGate.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onTap()
+          }
+        })
+      }
 
       const startXr = async () => {
         if (xrRunning) return
         if (!imageUrl) return
 
-        startBtn.disabled = true
-        startCopy.textContent = 'Starting AR…'
-
         const motionOk = await requestMotionIfNeeded()
         if (!motionOk) {
-          showError('Motion permission denied. Enable motion access and try again.')
+          showError('Motion access is needed for world tracking. Enable it in Settings and reload.')
           return
         }
 
@@ -306,6 +481,14 @@
             }
           }
 
+          if (x.XrController?.configure) {
+            try {
+              x.XrController.configure({ disableWorldTracking: false, enableVps: false, scale: 1 })
+            } catch {
+              /* ignore */
+            }
+          }
+
           if (x.clearCameraPipelineModules) {
             try {
               x.clearCameraPipelineModules()
@@ -314,7 +497,7 @@
             }
           }
 
-          const modules = [
+          x.addCameraPipelineModules([
             x.GlTextureRenderer.pipelineModule(),
             x.Threejs.pipelineModule(),
             x.XrController.pipelineModule(),
@@ -322,25 +505,22 @@
             window.XRExtras.Loading.pipelineModule(),
             window.XRExtras.RuntimeError.pipelineModule(),
             memorySceneModule(),
-          ]
+          ])
 
-          x.addCameraPipelineModules(modules)
           x.run({ canvas })
           xrRunning = true
-          startPanel.classList.add('mem-ar-chrome__hidden')
         } catch (e) {
+          if (isPermissionError(e)) {
+            showTapGate()
+            return
+          }
           showError(e instanceof Error ? e.message : 'Failed to start AR.')
         }
       }
 
       const onEngineReady = () => {
         if (!imageUrl) return
-        startCopy.textContent =
-          'Tap below to view “' + title + '” in your space. Single-finger tap recenters.'
-        startBtn.classList.remove('mem-ar-chrome__hidden')
-        startBtn.addEventListener('click', () => {
-          void startXr()
-        })
+        void startXr()
       }
 
       if (window.XR8) onEngineReady()
