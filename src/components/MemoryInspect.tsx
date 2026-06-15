@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useState, useMemo, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { MemoryPin } from '@/lib/memoryPin'
-import { pinAudioPlaybackUrl, pinIsAudioMemory, pinIsDraftMemory } from '@/lib/memoryMedia'
+import {
+  pinAudioPlaybackUrl,
+  pinImageArUrl,
+  pinIsAudioMemory,
+  pinIsDraftMemory,
+} from '@/lib/memoryMedia'
 import { requestArPermissions } from '@/lib/requestArPermissions'
 import { incrementMemoryView } from '@/lib/tipNudge'
 
@@ -188,7 +193,8 @@ const MemoryArEntryActions = ({
   const [arUi, setArUi] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null })
 
   const playbackUrl = pinAudioPlaybackUrl(pin)
-  const canViewInAr = Boolean(pin.imageUrl) || Boolean(playbackUrl)
+  const imageArUrl = pinImageArUrl(pin)
+  const canViewInAr = Boolean(imageArUrl) || Boolean(playbackUrl)
 
   const handleViewInAr = useCallback(async () => {
     if (arUi.busy) return
@@ -219,10 +225,10 @@ const MemoryArEntryActions = ({
           longitude: lng,
         },
       })
-    } else if (pin.imageUrl) {
+    } else if (imageArUrl) {
       navigate('/ar', {
         state: {
-          imageUrl: pin.imageUrl,
+          imageUrl: imageArUrl,
           latitude: lat,
           longitude: lng,
         },
@@ -230,7 +236,7 @@ const MemoryArEntryActions = ({
     }
 
     setArUi({ busy: false, error: null })
-  }, [navigate, pin, playbackUrl, canViewInAr, arUi.busy, onBeforeArNavigate])
+  }, [navigate, pin, playbackUrl, imageArUrl, canViewInAr, arUi.busy, onBeforeArNavigate])
 
   const handleViewInArKeyDown = useCallback(
     (e: ReactKeyboardEvent) => {

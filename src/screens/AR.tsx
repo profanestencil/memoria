@@ -5,6 +5,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { distanceMeters } from '@/lib/geoAr'
 import { ensureXrViewportDom } from '@/lib/ensureXrViewportDom'
 import { loadXrEngine } from '@/lib/loadXrEngine'
+import { resolveMediaPlaybackUrl } from '@/lib/memoryMedia'
 import { createAudioReactiveSphere, type AudioReactiveSphereHandle } from '@/lib/arAudioReactiveSphere'
 import { createMemoryImageCard } from '@/lib/arMemoryImageCard'
 import { ArIframeScene } from '@/screens/ArIframeScene'
@@ -94,7 +95,9 @@ function ArMemoryXR({ state }: { state: LocationState }) {
 
   const resolvedImageUrl = useMemo(() => {
     if (isAudioAr) return undefined
-    return state.imageUrl ?? debugImageUrl ?? undefined
+    const raw = state.imageUrl ?? debugImageUrl
+    if (!raw?.trim()) return undefined
+    return resolveMediaPlaybackUrl(raw.trim())
   }, [isAudioAr, state.imageUrl, debugImageUrl])
 
   const audioLoop = Boolean(state.audioLoop)
@@ -143,14 +146,10 @@ function ArMemoryXR({ state }: { state: LocationState }) {
 
   const computeGate = (geo: GeoFix | null) => {
     if (!geo || targetLat == null || targetLng == null) {
-      return { nearHard: false, nearSoft: false, tooFar: false, distanceM: null as number | null }
+      return { distanceM: null as number | null }
     }
     const d = distanceMeters(geo.lat, geo.lng, targetLat, targetLng)
-    const accuracyM = geo.accuracyM
-    const nearHard = d <= 15 && accuracyM != null && accuracyM <= 15
-    const nearSoft = d <= 50 && (accuracyM == null || accuracyM <= 50)
-    const tooFar = d > 150 && accuracyM != null && accuracyM <= 50
-    return { nearHard, nearSoft, tooFar, distanceM: d }
+    return { distanceM: d }
   }
 
   // Placement refs (populated after XR8 starts)
@@ -246,7 +245,7 @@ function ArMemoryXR({ state }: { state: LocationState }) {
     }
 
     if (!hasGeoTarget) {
-      if (debugEnabled && hasPayload) {
+      if (hasPayload) {
         setMachine('IN_RANGE_STARTING_AR', copyOverlay.starting)
         return
       }
@@ -255,12 +254,20 @@ function ArMemoryXR({ state }: { state: LocationState }) {
     }
 
     if (debugEnabled) {
-      // Debug mode: skip proximity gating so we can debug XR startup anywhere.
       setMachine('IN_RANGE_STARTING_AR', copyOverlay.starting)
       return
     }
 
     setMachine('GEO_ACQUIRING', copyOverlay.gettingLocation)
+
+    let acquired = false
+    const beginAr = (distance: number | null) => {
+      if (acquired) return
+      acquired = true
+      setDistanceM(distance)
+      // Placement is camera-relative; distance is informational only — do not block startup.
+      setMachine('IN_RANGE_STARTING_AR', copyOverlay.starting)
+    }
 
     let cancelled = false
     const watchId = navigator.geolocation.watchPosition(
@@ -273,33 +280,27 @@ function ArMemoryXR({ state }: { state: LocationState }) {
         }
         const gate = computeGate(geoRef.current)
         setDistanceM(gate.distanceM)
-
-        const cur = machineRef.current
-        if (cur === 'GEO_ACQUIRING' || cur === 'OUT_OF_RANGE_BLOCKED') {
-          if (gate.tooFar) {
-            setMachine('OUT_OF_RANGE_BLOCKED', copyOverlay.tooFar)
-            return
-          }
-          if (gate.nearHard || gate.nearSoft) {
-            setMachine('IN_RANGE_STARTING_AR', copyOverlay.starting)
-            return
-          }
-          setMachine('GEO_ACQUIRING', copyOverlay.moveCloser(gate.distanceM))
+        if (machineRef.current === 'GEO_ACQUIRING' || machineRef.current === 'OUT_OF_RANGE_BLOCKED') {
+          beginAr(gate.distanceM)
         }
       },
-      (err) => {
+      () => {
         if (cancelled) return
-        if (err.code === err.PERMISSION_DENIED) {
-          setMachine('ERROR', null, 'Location permission is required for AR. Enable location and try again.')
-          return
+        if (machineRef.current === 'GEO_ACQUIRING' || machineRef.current === 'OUT_OF_RANGE_BLOCKED') {
+          beginAr(null)
         }
-        setMachine('ERROR', null, 'Unable to get your location for AR. Check GPS and try again.')
       },
       { enableHighAccuracy: true, maximumAge: 1000, timeout: 15_000 }
     )
 
+    const fallbackTimer = window.setTimeout(() => {
+      if (cancelled || acquired) return
+      beginAr(computeGate(geoRef.current).distanceM)
+    }, 8_000)
+
     return () => {
       cancelled = true
+      window.clearTimeout(fallbackTimer)
       navigator.geolocation.clearWatch(watchId)
     }
   }, [

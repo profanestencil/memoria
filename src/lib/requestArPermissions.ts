@@ -35,6 +35,34 @@ const requestMotionPermissionIfNeeded = async (): Promise<RequestResult> => {
   }
 }
 
+const requestLocationPermission = async (): Promise<RequestResult> => {
+  if (!navigator.geolocation) {
+    return { ok: true }
+  }
+
+  try {
+    await new Promise<GeolocationPosition>((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: true,
+        timeout: 12_000,
+        maximumAge: 0,
+      })
+    })
+    return { ok: true }
+  } catch (e) {
+    const geoErr = e as GeolocationPositionError
+    if (geoErr?.code === geoErr.PERMISSION_DENIED) {
+      return {
+        ok: false,
+        reason: 'denied',
+        message: 'Location permission is required for AR. Enable location and try again.',
+      }
+    }
+    const msg = e instanceof Error ? e.message : 'Unable to read your location.'
+    return { ok: false, reason: 'unknown', message: msg }
+  }
+}
+
 const requestCameraPermission = async (): Promise<RequestResult> => {
   if (!navigator.mediaDevices?.getUserMedia) {
     return { ok: false, reason: 'unsupported', message: 'Camera API not available in this browser.' }
@@ -69,6 +97,12 @@ export const requestArPermissions = async (): Promise<RequestResult> => {
     if (!motion.ok && motion.reason === 'denied') return motion
   }
 
-  return await requestCameraPermission()
+  const camera = await requestCameraPermission()
+  if (!camera.ok) return camera
+
+  // Best-effort: warms location permission before /ar (distance badge only).
+  await requestLocationPermission()
+
+  return { ok: true }
 }
 

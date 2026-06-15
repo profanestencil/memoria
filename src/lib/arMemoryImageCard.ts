@@ -31,6 +31,9 @@ export async function createMemoryImageCard(opts: {
 
   const tex = await new Promise<THREE.Texture>((resolve, reject) => {
     const loader = new THREE.TextureLoader()
+    if (!opts.imageUrl.startsWith('blob:') && !opts.imageUrl.startsWith('data:')) {
+      loader.setCrossOrigin('anonymous')
+    }
     loader.load(
       opts.imageUrl,
       (t) => resolve(t),
