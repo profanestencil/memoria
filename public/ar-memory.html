@@ -41,6 +41,14 @@
       src="https://cdn.jsdelivr.net/npm/@8thwall/xrextras@1/dist/xrextras.js"
       crossorigin="anonymous"
     ></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+        }
+      }
+    </script>
     <style>
       * {
         box-sizing: border-box;
@@ -229,8 +237,8 @@
     </div>
 
     <script type="module">
-      import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js'
-      import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/loaders/GLTFLoader.js'
+      import * as THREE from 'three'
+      import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 
       window.THREE = THREE
 
@@ -329,18 +337,30 @@
 
       const canvasNormal = createCanvasNormalMap()
 
+      const dressPhotoMaterial = (mat, tex) => {
+        mat.map = tex
+        mat.emissiveMap = tex
+        mat.emissive = new THREE.Color(0xffffff)
+        mat.emissiveIntensity = 0.42
+        mat.normalMap = canvasNormal
+        mat.normalScale = new THREE.Vector2(0.16, 0.16)
+        mat.roughness = 0.72
+        mat.metalness = 0
+        mat.needsUpdate = true
+      }
+
       const applyPhotoTexture = (root, tex) => {
         root.traverse((child) => {
           if (!child.isMesh) return
           const mats = Array.isArray(child.material) ? child.material : [child.material]
-          mats.forEach((mat) => {
-            if (mat?.name === 'Photo') {
-              mat.map = tex
-              mat.normalMap = canvasNormal
-              mat.normalScale = new THREE.Vector2(0.16, 0.16)
-              mat.needsUpdate = true
-            }
-          })
+          const named = mats.find((mat) => mat?.name === 'Photo')
+          if (named) {
+            dressPhotoMaterial(named, tex)
+            return
+          }
+          if (child.name === 'MemoryBoard' && mats.length >= 6) {
+            dressPhotoMaterial(mats[4], tex)
+          }
         })
       }
 
@@ -469,7 +489,7 @@
 
       const memorySceneModule = () => ({
         name: 'memoria-world-memory',
-        onStart: async () => {
+        onStart: () => {
           hideSplash()
 
           const xrScene = window.XR8.Threejs.xrScene()
@@ -481,15 +501,22 @@
           renderer.autoClear = false
           renderer.setClearColor(0x000000, 0)
 
-          const hemi = new THREE.HemisphereLight(0xfff8ee, 0x2a2520, 0.55)
+          const ambient = new THREE.AmbientLight(0xffffff, 0.55)
+          scene.add(ambient)
+
+          const hemi = new THREE.HemisphereLight(0xfff8ee, 0x3a3530, 0.85)
           scene.add(hemi)
 
-          const sun = new THREE.DirectionalLight(0xffffff, 1.05)
+          const sun = new THREE.DirectionalLight(0xffffff, 1.25)
           sun.position.set(2, 4, 1)
           sun.castShadow = true
           sun.shadow.mapSize.set(512, 512)
           sun.shadow.bias = -0.0004
           scene.add(sun)
+
+          const fill = new THREE.DirectionalLight(0xfff4e8, 0.45)
+          fill.position.set(-2, 1.5, 2)
+          scene.add(fill)
 
           memoryAnchor = new THREE.Group()
           memoryAnchor.visible = false
@@ -499,14 +526,16 @@
           tiltGroup.rotation.order = 'YXZ'
           memoryAnchor.add(tiltGroup)
 
-          try {
-            const [tex, gltf] = await assetsPromise
-            applyPhotoTexture(gltf.scene, tex)
-            tiltGroup.add(gltf.scene)
-            placeAtOrigin()
-          } catch (e) {
-            showError(e instanceof Error ? e.message : 'Could not load the memory.')
-          }
+          void (async () => {
+            try {
+              const [tex, gltf] = await assetsPromise
+              applyPhotoTexture(gltf.scene, tex)
+              tiltGroup.add(gltf.scene)
+              placeAtOrigin()
+            } catch (e) {
+              showError(e instanceof Error ? e.message : 'Could not load the memory.')
+            }
+          })()
 
           bindTouchGestures()
         },
@@ -607,13 +636,33 @@
         }
       }
 
+      const needsTapToStart = () => {
+        const ua = navigator.userAgent || ''
+        if (/iPhone|iPad|iPod/i.test(ua)) return true
+        const dm = window.DeviceMotionEvent
+        return Boolean(dm?.requestPermission)
+      }
+
       const onEngineReady = () => {
         if (!imageUrl) return
+        if (needsTapToStart()) {
+          showTapGate()
+          return
+        }
         void startXr()
       }
 
       if (window.XR8) onEngineReady()
       else window.addEventListener('xrloaded', onEngineReady, { once: true })
+
+      window.addEventListener('error', (e) => {
+        const msg = e.message || ''
+        if (msg) showError('AR failed to start: ' + msg)
+      })
+      window.addEventListener('unhandledrejection', (e) => {
+        const reason = e.reason instanceof Error ? e.reason.message : String(e.reason || '')
+        if (reason) showError('AR failed to start: ' + reason)
+      })
     </script>
   </body>
 </html>
