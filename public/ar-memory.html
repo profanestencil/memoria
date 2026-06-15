@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0a0908" />
+    <title>Memoria — AR</title>
+    <!-- Self-hosted engine binary (see scripts/copy-8thwall-assets.mjs) -->
+    <script
+      src="/external/xr/xr.js"
+      async
+      crossorigin="anonymous"
+      data-preload-chunks="slam"
+      data-8thwall="xr"
+    ></script>
+    <!-- 8th Wall A-Frame fork — wires xrweb → camera feed + SLAM (Illust webar pattern) -->
+    <script src="https://cdn.8thwall.com/web/aframe/8frame-1.4.1.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@8thwall/xrextras@1/dist/xrextras.js" crossorigin="anonymous"></script>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #0a0908;
+        font-family: system-ui, -apple-system, sans-serif;
+        color: #eae6e1;
+      }
+      a-scene {
+        position: fixed !important;
+        inset: 0;
+      }
+      .mem-ar-chrome {
+        position: fixed;
+        z-index: 20;
+        pointer-events: none;
+        inset: 0;
+      }
+      .mem-ar-chrome button {
+        pointer-events: auto;
+        font: inherit;
+        cursor: pointer;
+        border-radius: 12px;
+        border: 1px solid rgba(232, 197, 71, 0.35);
+        background: rgba(10, 9, 8, 0.88);
+        color: #eae6e1;
+        padding: 10px 14px;
+        font-weight: 600;
+        font-size: 14px;
+      }
+      .mem-ar-chrome__top {
+        position: absolute;
+        top: max(12px, env(safe-area-inset-top));
+        left: 12px;
+        display: flex;
+        gap: 8px;
+      }
+      .mem-ar-chrome__bottom {
+        position: absolute;
+        left: 16px;
+        right: 16px;
+        bottom: max(20px, env(safe-area-inset-bottom));
+        max-width: 420px;
+        margin: 0 auto;
+        pointer-events: auto;
+      }
+      .mem-ar-chrome__panel {
+        background: rgba(8, 7, 6, 0.88);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 14px;
+        padding: 14px;
+      }
+      .mem-ar-chrome__panel p {
+        margin: 0 0 12px;
+        font-size: 14px;
+        line-height: 1.45;
+        color: rgba(255, 255, 255, 0.9);
+      }
+      .mem-ar-chrome__primary {
+        width: 100%;
+        border: none;
+        background: linear-gradient(165deg, #e8c547, #a67c1a);
+        color: #1a1510;
+        padding: 14px;
+        font-weight: 700;
+      }
+      .mem-ar-chrome__error {
+        color: #f0a0a0;
+        font-size: 13px;
+        margin-top: 10px;
+      }
+      .mem-ar-chrome__hidden {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <a-scene
+      id="mem-ar-scene"
+      xrconfig
+      embedded
+      renderer="colorManagement: true; physicallyCorrectLights: true"
+      vr-mode-ui="enabled: false"
+      device-orientation-permission-ui="enabled: false"
+      xrextras-loading
+      xrextras-runtime-error
+    >
+      <a-assets timeout="30000">
+        <img id="memory-photo" crossorigin="anonymous" src="" alt="" />
+      </a-assets>
+
+      <a-entity id="memory-root" position="0 1.35 -1.75" visible="false">
+        <a-plane
+          id="memory-plane"
+          width="1.2"
+          height="0.9"
+          src="#memory-photo"
+          material="shader: flat; side: double"
+          shadow="cast: true"
+        ></a-plane>
+      </a-entity>
+
+      <a-plane
+        rotation="-90 0 0"
+        width="12"
+        height="12"
+        position="0 0 0"
+        material="shader: shadow"
+        shadow="receive: true"
+      ></a-plane>
+
+      <a-light type="ambient" intensity="0.55"></a-light>
+      <a-light type="directional" intensity="0.85" position="1 2 0.5" cast-shadow="true"></a-light>
+    </a-scene>
+
+    <div class="mem-ar-chrome" aria-live="polite">
+      <div class="mem-ar-chrome__top">
+        <button type="button" id="back-btn" aria-label="Back to map">← Map</button>
+      </div>
+      <div class="mem-ar-chrome__bottom" id="start-panel">
+        <div class="mem-ar-chrome__panel">
+          <p id="start-copy">Your browser needs a tap to start the camera for AR.</p>
+          <button type="button" class="mem-ar-chrome__primary" id="start-btn">Tap to start AR</button>
+          <p class="mem-ar-chrome__error mem-ar-chrome__hidden" id="error-line" role="alert"></p>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      ;(function () {
+        const params = new URLSearchParams(window.location.search)
+        const rawImage = params.get('imageUrl') || ''
+        const title = params.get('title') || 'Memory'
+
+        const sceneEl = document.getElementById('mem-ar-scene')
+        const imgEl = document.getElementById('memory-photo')
+        const planeEl = document.getElementById('memory-plane')
+        const rootEl = document.getElementById('memory-root')
+        const startBtn = document.getElementById('start-btn')
+        const startPanel = document.getElementById('start-panel')
+        const startCopy = document.getElementById('start-copy')
+        const errorLine = document.getElementById('error-line')
+        const backBtn = document.getElementById('back-btn')
+
+        const showError = (msg) => {
+          errorLine.textContent = msg
+          errorLine.classList.remove('mem-ar-chrome__hidden')
+        }
+
+        if (!rawImage) {
+          startCopy.textContent = 'No memory image. Open this view from a map pin.'
+          startBtn.disabled = true
+          return
+        }
+
+        imgEl.src = rawImage
+        document.title = 'Memoria — ' + title
+
+        const fitPlaneToImage = () => {
+          const w = imgEl.naturalWidth || 1
+          const h = imgEl.naturalHeight || 1
+          const aspect = w / h
+          const edge = 1.25
+          if (aspect >= 1) {
+            planeEl.setAttribute('width', edge)
+            planeEl.setAttribute('height', edge / aspect)
+          } else {
+            planeEl.setAttribute('height', edge)
+            planeEl.setAttribute('width', edge * aspect)
+          }
+          rootEl.setAttribute('visible', 'true')
+        }
+
+        imgEl.addEventListener('load', fitPlaneToImage)
+        imgEl.addEventListener('error', () => {
+          showError('Could not load the memory image for AR.')
+        })
+
+        backBtn.addEventListener('click', () => {
+          if (window.history.length > 1) window.history.back()
+          else window.location.href = '/map'
+        })
+
+        const requestMotionIfNeeded = async () => {
+          const dm = window.DeviceMotionEvent
+          const dor = window.DeviceOrientationEvent
+          const req = dm?.requestPermission || dor?.requestPermission
+          if (!req) return true
+          try {
+            const res = await req.call(dm?.requestPermission ? dm : dor)
+            return res === 'granted'
+          } catch {
+            return false
+          }
+        }
+
+        const requestCamera = async () => {
+          if (!navigator.mediaDevices?.getUserMedia) return false
+          try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+              video: { facingMode: { ideal: 'environment' } },
+              audio: false,
+            })
+            stream.getTracks().forEach((t) => t.stop())
+            return true
+          } catch {
+            return false
+          }
+        }
+
+        let arStarted = false
+
+        const startAr = async () => {
+          if (arStarted) return
+          startBtn.disabled = true
+          startCopy.textContent = 'Starting AR…'
+
+          const motionOk = await requestMotionIfNeeded()
+          if (!motionOk) {
+            showError('Motion permission denied — enable motion access and try again.')
+            startBtn.disabled = false
+            return
+          }
+
+          const camOk = await requestCamera()
+          if (!camOk) {
+            showError('Camera permission denied — allow camera access and tap again.')
+            startBtn.disabled = false
+            return
+          }
+
+          try {
+            if (!sceneEl.hasAttribute('xrweb')) {
+              sceneEl.setAttribute('xrweb', '')
+            }
+            arStarted = true
+            startPanel.classList.add('mem-ar-chrome__hidden')
+            sceneEl.addEventListener(
+              'realityready',
+              () => {
+                try {
+                  window.XR8?.XrController?.recenter?.()
+                } catch {
+                  /* ignore */
+                }
+              },
+              { once: true }
+            )
+          } catch (e) {
+            showError(e instanceof Error ? e.message : 'Failed to start AR.')
+            startBtn.disabled = false
+          }
+        }
+
+        startBtn.addEventListener('click', () => {
+          void startAr()
+        })
+
+        // Recenter on single tap (Illust / 8th Wall convention)
+        sceneEl.addEventListener(
+          'click',
+          (e) => {
+            if (!arStarted) return
+            try {
+              window.XR8?.XrController?.recenter?.()
+            } catch {
+              /* ignore */
+            }
+          },
+          true
+        )
+
+        const onEngineReady = () => {
+          startCopy.textContent =
+            'Tap below to place “' + title + '” in your space. Drag with one finger to look around.'
+        }
+
+        if (window.XR8) onEngineReady()
+        else window.addEventListener('xrloaded', onEngineReady, { once: true })
+      })()
+    </script>
+  </body>
+</html>

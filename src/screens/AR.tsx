@@ -8,6 +8,7 @@ import { loadXrEngine } from '@/lib/loadXrEngine'
 import { resolveMediaPlaybackUrl } from '@/lib/memoryMedia'
 import { createAudioReactiveSphere, type AudioReactiveSphereHandle } from '@/lib/arAudioReactiveSphere'
 import { createMemoryImageCard } from '@/lib/arMemoryImageCard'
+import { buildArMemoryPageUrl } from '@/lib/arMemoryPageUrl'
 import { ArIframeScene } from '@/screens/ArIframeScene'
 
 type LocationState = {
@@ -492,6 +493,10 @@ function ArMemoryXR({ state }: { state: LocationState }) {
       pushDebug('startXr()')
       try {
         await loadXrEngine()
+        await new Promise<void>((resolve) => {
+          if (XR8Any()) resolve()
+          else window.addEventListener('xrloaded', () => resolve(), { once: true })
+        })
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'Failed to load 8th Wall runtime.'
         setMachine('ERROR', null, msg)
@@ -813,6 +818,14 @@ function ArMemoryXR({ state }: { state: LocationState }) {
             pushDebug('XRExtras.FullWindowCanvas ok')
           } catch (e) {
             pushDebug(`FullWindowCanvas skip: ${e instanceof Error ? e.message : String(e)}`)
+          }
+        }
+        if (hostGlobals.XRExtras?.Loading?.pipelineModule) {
+          try {
+            pushMod(hostGlobals.XRExtras.Loading.pipelineModule())
+            pushDebug('XRExtras.Loading ok')
+          } catch (e) {
+            pushDebug(`Loading skip: ${e instanceof Error ? e.message : String(e)}`)
           }
         }
         if (hostGlobals.XRExtras?.RuntimeError?.pipelineModule) {
@@ -1164,6 +1177,28 @@ function ArMemoryXR({ state }: { state: LocationState }) {
 export function AR() {
   const location = useLocation()
   const state = (location.state ?? {}) as LocationState
+
+  const imageRedirectUrl = useMemo(() => {
+    if (state.mode === 'iframe') return null
+    if (state.audioUrl?.trim()) return null
+    const img = state.imageUrl?.trim()
+    if (!img) return null
+    return buildArMemoryPageUrl({
+      imageUrl: img,
+      latitude: state.latitude,
+      longitude: state.longitude,
+    })
+  }, [state])
+
+  useEffect(() => {
+    if (!imageRedirectUrl) return
+    window.location.replace(imageRedirectUrl)
+  }, [imageRedirectUrl])
+
+  if (imageRedirectUrl) {
+    return null
+  }
+
   if (state.mode === 'iframe' && state.iframeUrl && state.latitude != null && state.longitude != null) {
     const lat = Number(state.latitude)
     const lng = Number(state.longitude)

@@ -243,8 +243,12 @@ body::before {
 
 /*
  * 8th Wall: `#camerafeed` canvas (threejs-world-effects-example) is a body sibling under #root.
- * Keep #root above the canvas so UI sits on top; root stays transparent (see AR overlays pointer-events).
+ * Hidden by default; shown only on the React `/ar` route (audio / iframe fallback).
  */
+#camerafeed {
+  display: none;
+}
+
 /* Hosted Illust / third-party AR in an iframe — dark shell (distinct from transparent 8th Wall stack). */
 html.mem-ar-iframe-shell,
 html.mem-ar-iframe-shell body {
@@ -264,6 +268,7 @@ html.mem-ar-stack body::before {
 }
 
 html.mem-ar-stack #camerafeed {
+  display: block !important;
   position: fixed !important;
   inset: 0 !important;
   width: 100% !important;

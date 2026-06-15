@@ -7,6 +7,7 @@ import {
   pinIsAudioMemory,
   pinIsDraftMemory,
 } from '@/lib/memoryMedia'
+import { buildArMemoryPageUrl } from '@/lib/arMemoryPageUrl'
 import { requestArPermissions } from '@/lib/requestArPermissions'
 import { incrementMemoryView } from '@/lib/tipNudge'
 
@@ -226,13 +227,14 @@ const MemoryArEntryActions = ({
         },
       })
     } else if (imageArUrl) {
-      navigate('/ar', {
-        state: {
+      window.location.assign(
+        buildArMemoryPageUrl({
           imageUrl: imageArUrl,
+          title: pin.title || 'Memory',
           latitude: lat,
           longitude: lng,
-        },
-      })
+        })
+      )
     }
 
     setArUi({ busy: false, error: null })
