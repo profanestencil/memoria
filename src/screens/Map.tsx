@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import type { Map as MapboxMap } from 'mapbox-gl'
 import { MemoriesMapCanvas } from '@/components/MemoriesMapCanvas'
+import { MemoryActivityToastStack } from '@/components/MemoryActivityToastStack'
 import { RuntimeClaimsPanel } from '@/components/RuntimeClaimsPanel'
 import { WalletProfileButton } from '@/components/WalletProfileButton'
 import { getMapboxClientTokenState } from '@/lib/mapboxClientToken'
@@ -47,6 +48,7 @@ export function Map() {
 
   return (
     <div style={{ position: 'relative', width: '100vw', height: '100vh' }}>
+      <MemoryActivityToastStack />
       <MemoriesMapCanvas
         trackUser
         refreshEpoch={mapRefreshEpoch}

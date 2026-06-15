@@ -9,10 +9,12 @@ import {
 } from '@/lib/memoryMedia'
 import {
   buildArMemoryPageUrl,
-  detectImageOrientation,
+  detectImageDimensions,
   prefetchArBoardGlb,
   prefetchArImage,
 } from '@/lib/arMemoryPageUrl'
+import { checkArViewAllowed } from '@/lib/arGeofence'
+import { frameHueForMemory } from '@/lib/memoryFrameColor'
 import { requestArPermissions } from '@/lib/requestArPermissions'
 import { incrementMemoryView } from '@/lib/tipNudge'
 
@@ -227,6 +229,11 @@ const MemoryArEntryActions = ({
     }
 
     if (pinIsAudioMemory(pin) && playbackUrl) {
+      const gate = await checkArViewAllowed(lat, lng)
+      if (!gate.ok) {
+        setArUi({ busy: false, error: gate.message })
+        return
+      }
       const perm = await requestArPermissions()
       if (!perm.ok) {
         setArUi({ busy: false, error: perm.message })
@@ -246,10 +253,15 @@ const MemoryArEntryActions = ({
     }
 
     if (imageArUrl) {
+      const gate = await checkArViewAllowed(lat, lng)
+      if (!gate.ok) {
+        setArUi({ busy: false, error: gate.message })
+        return
+      }
       onBeforeArNavigate?.()
       prefetchArImage(imageArUrl)
-      const orientation = await detectImageOrientation(imageArUrl)
-      prefetchArBoardGlb(orientation)
+      const dims = await detectImageDimensions(imageArUrl)
+      prefetchArBoardGlb(dims.orientation)
       window.location.assign(
         buildArMemoryPageUrl({
           imageUrl: imageArUrl,
@@ -257,7 +269,9 @@ const MemoryArEntryActions = ({
           creator: creatorLabel,
           latitude: lat,
           longitude: lng,
-          orientation,
+          orientation: dims.orientation,
+          aspect: dims.aspect,
+          frameHue: frameHueForMemory(pin.memoryId),
         })
       )
       return

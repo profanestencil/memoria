@@ -1400,3 +1400,70 @@ textarea:focus-visible {
   width: auto;
   max-width: min(60px, 20vw);
 }
+
+.mem-activity-toast-stack {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  left: 12px;
+  right: 12px;
+  z-index: 40;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.mem-activity-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(100%, 420px);
+  padding: 10px 12px;
+  border-radius: 999px;
+  background: rgba(8, 7, 6, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+  animation: mem-activity-toast-in 0.35s ease;
+}
+
+@keyframes mem-activity-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.mem-activity-toast__thumb {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.mem-activity-toast__thumb--placeholder {
+  background: linear-gradient(135deg, rgba(232, 197, 71, 0.35), rgba(120, 100, 60, 0.25));
+}
+
+.mem-activity-toast__text {
+  margin: 0;
+  flex: 1;
+  font-size: 13px;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.mem-activity-toast__close {
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 4px;
+  cursor: pointer;
+}

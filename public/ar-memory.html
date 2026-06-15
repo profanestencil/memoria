@@ -145,27 +145,36 @@
       }
       .mem-ar-meta {
         position: absolute;
-        left: 16px;
-        right: 16px;
-        bottom: max(16px, env(safe-area-inset-bottom));
-        max-width: 420px;
+        left: 12px;
+        right: 12px;
+        bottom: max(14px, env(safe-area-inset-bottom));
+        max-width: 440px;
         margin: 0 auto;
-        text-align: center;
+        padding: 12px 14px;
+        border-radius: 14px;
+        text-align: left;
         pointer-events: none;
+        background: rgba(8, 7, 6, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
       }
       .mem-ar-meta__title {
         margin: 0;
         font-size: 15px;
         font-weight: 600;
         letter-spacing: 0.01em;
-        color: rgba(255, 255, 255, 0.88);
-        text-shadow: 0 1px 8px rgba(0, 0, 0, 0.65);
+        color: rgba(255, 255, 255, 0.94);
       }
       .mem-ar-meta__creator {
         margin: 4px 0 0;
         font-size: 12px;
-        color: rgba(255, 255, 255, 0.52);
-        text-shadow: 0 1px 6px rgba(0, 0, 0, 0.55);
+        color: rgba(255, 255, 255, 0.58);
+      }
+      .mem-ar-meta__future {
+        margin: 6px 0 0;
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.34);
       }
       .mem-ar-chrome__error {
         position: absolute;
@@ -228,6 +237,7 @@
       <div id="meta-block" class="mem-ar-meta">
         <p id="meta-title" class="mem-ar-meta__title"></p>
         <p id="meta-creator" class="mem-ar-meta__creator"></p>
+        <p class="mem-ar-meta__future">Follow creator — coming soon</p>
       </div>
       <p id="error-line" class="mem-ar-chrome__error mem-ar-chrome__hidden" role="alert"></p>
     </div>
@@ -251,15 +261,28 @@
         orientationParam === 'landscape' || orientationParam === 'portrait'
           ? orientationParam
           : 'portrait'
+      const aspectParam = Number(params.get('aspect'))
+      const imageAspect =
+        Number.isFinite(aspectParam) && aspectParam > 0 ? aspectParam : orientation === 'landscape' ? 16 / 9 : 9 / 16
+      const frameHue = Number(params.get('frameHue'))
+      const memoryLat = Number(params.get('lat'))
+      const memoryLng = Number(params.get('lng'))
 
       const BOARD_GLB = {
         portrait: '/ar/memory-board-portrait.glb',
         landscape: '/ar/memory-board-landscape.glb',
       }
 
-      /** World origin anchor — card sits on -Z in front of the SLAM origin (0,0,0). */
-      const PLACEMENT_DISTANCE = 1.62
-      const BILLBOARD_SMOOTH = 0.11
+      const BOARD_TEMPLATE = {
+        portrait: { w: 0.54, h: 0.96 },
+        landscape: { w: 0.96, h: 0.54 },
+      }
+
+      /** World origin anchor — board stands on floor (Y=0) facing the viewer. */
+      const PLACEMENT_DISTANCE = 1.88
+      const MAX_BOARD_EDGE_M = 1.48
+      const DEPTH_SCALE = 2.35
+      const BOB_AMPLITUDE = 0.068
 
       const canvas = document.getElementById('camerafeed')
       const hintLine = document.getElementById('hint-line')
@@ -341,12 +364,26 @@
         mat.map = tex
         mat.emissiveMap = tex
         mat.emissive = new THREE.Color(0xffffff)
-        mat.emissiveIntensity = 0.42
+        mat.emissiveIntensity = 0.48
         mat.normalMap = canvasNormal
-        mat.normalScale = new THREE.Vector2(0.16, 0.16)
-        mat.roughness = 0.72
+        mat.normalScale = new THREE.Vector2(0.14, 0.14)
+        mat.roughness = 0.68
         mat.metalness = 0
         mat.needsUpdate = true
+      }
+
+      const applyFrameColor = (root, hue) => {
+        const color = new THREE.Color(`hsl(${hue}, 58%, 44%)`)
+        root.traverse((child) => {
+          if (!child.isMesh) return
+          const mats = Array.isArray(child.material) ? child.material : [child.material]
+          mats.forEach((mat) => {
+            if (mat?.name === 'Frame') {
+              mat.color.copy(color)
+              mat.needsUpdate = true
+            }
+          })
+        })
       }
 
       const applyPhotoTexture = (root, tex) => {
@@ -362,6 +399,27 @@
             dressPhotoMaterial(mats[4], tex)
           }
         })
+      }
+
+      let boardMetrics = { width: 0.54, height: 0.96 }
+
+      const fitBoardToAspect = (root, orient, aspect) => {
+        const template = BOARD_TEMPLATE[orient] || BOARD_TEMPLATE.portrait
+        let targetW
+        let targetH
+        if (aspect >= 1) {
+          targetW = MAX_BOARD_EDGE_M
+          targetH = MAX_BOARD_EDGE_M / aspect
+        } else {
+          targetH = MAX_BOARD_EDGE_M
+          targetW = MAX_BOARD_EDGE_M * aspect
+        }
+        root.scale.set(
+          targetW / template.w,
+          targetH / template.h,
+          DEPTH_SCALE
+        )
+        boardMetrics = { width: targetW, height: targetH }
       }
 
       const texturePromise = imageUrl
@@ -426,8 +484,6 @@
       let tiltGroup = null
       let phase = 'LOADING'
       let placedAtMs = 0
-      const billboardHelper = new THREE.Object3D()
-      const faceDir = new THREE.Vector3()
 
       const drag = { yaw: 0, pitch: 0, active: false, moved: false, lastX: 0, lastY: 0 }
       const MAX_YAW = 0.85
@@ -435,15 +491,62 @@
       const DRAG_SENS = 0.0042
       const TAP_MOVE_PX = 10
 
-      const placeAtOrigin = () => {
+      const placeAtOrigin = (camera) => {
         if (!memoryAnchor) return
-        memoryAnchor.position.set(0, 0, -PLACEMENT_DISTANCE)
+        memoryAnchor.position.set(0, boardMetrics.height / 2, -PLACEMENT_DISTANCE)
+        const dx = camera.position.x - memoryAnchor.position.x
+        const dz = camera.position.z - memoryAnchor.position.z
+        memoryAnchor.rotation.set(0, Math.atan2(dx, dz), 0)
         memoryAnchor.visible = true
         phase = 'PLACED'
         placedAtMs = Date.now()
         setHint('Drag to rotate · tap to recenter', true)
         window.setTimeout(() => setHint('', false), 4000)
       }
+
+      const verifyArRange = () =>
+        new Promise((resolve) => {
+          if (!Number.isFinite(memoryLat) || !Number.isFinite(memoryLng)) {
+            resolve(true)
+            return
+          }
+          if (!navigator.geolocation) {
+            showError('Location is required to view this memory in AR.')
+            resolve(false)
+            return
+          }
+          navigator.geolocation.getCurrentPosition(
+            async (p) => {
+              try {
+                const u = new URL('/api/ar/can-view', window.location.origin)
+                u.searchParams.set('lat', String(memoryLat))
+                u.searchParams.set('lng', String(memoryLng))
+                u.searchParams.set('userLat', String(p.coords.latitude))
+                u.searchParams.set('userLng', String(p.coords.longitude))
+                const token = localStorage.getItem('memoria:adminToken')
+                const headers = token ? { Authorization: `Bearer ${token}` } : {}
+                const res = await fetch(u.toString(), { headers })
+                const j = await res.json()
+                if (j.allowed) {
+                  resolve(true)
+                  return
+                }
+                const dist = Math.round(j.distanceM ?? 0)
+                const radius = Math.round(j.radiusM ?? 80)
+                showError(`Move closer to this memory (${dist}m away · within ${radius}m).`)
+                resolve(false)
+              } catch {
+                showError('Could not verify AR range.')
+                resolve(false)
+              }
+            },
+            () => {
+              showError('Location is required to view this memory in AR.')
+              resolve(false)
+            },
+            { enableHighAccuracy: true, timeout: 12_000, maximumAge: 10_000 }
+          )
+        })
 
       const bindTouchGestures = () => {
         const onStart = (e) => {
@@ -473,7 +576,8 @@
           if (drag.active && !drag.moved && phase === 'PLACED') {
             try {
               window.XR8.XrController.recenter()
-              memoryAnchor.position.set(0, 0, -PLACEMENT_DISTANCE)
+              const { camera } = window.XR8.Threejs.xrScene()
+              placeAtOrigin(camera)
             } catch {
               /* ignore */
             }
@@ -501,22 +605,26 @@
           renderer.autoClear = false
           renderer.setClearColor(0x000000, 0)
 
-          const ambient = new THREE.AmbientLight(0xffffff, 0.55)
+          const ambient = new THREE.AmbientLight(0xffffff, 0.72)
           scene.add(ambient)
 
-          const hemi = new THREE.HemisphereLight(0xfff8ee, 0x3a3530, 0.85)
+          const hemi = new THREE.HemisphereLight(0xfff8ee, 0x3a3530, 1.05)
           scene.add(hemi)
 
-          const sun = new THREE.DirectionalLight(0xffffff, 1.25)
-          sun.position.set(2, 4, 1)
+          const sun = new THREE.DirectionalLight(0xffffff, 1.35)
+          sun.position.set(2, 5, 1.5)
           sun.castShadow = true
           sun.shadow.mapSize.set(512, 512)
           sun.shadow.bias = -0.0004
           scene.add(sun)
 
-          const fill = new THREE.DirectionalLight(0xfff4e8, 0.45)
-          fill.position.set(-2, 1.5, 2)
+          const fill = new THREE.DirectionalLight(0xfff4e8, 0.62)
+          fill.position.set(-2.5, 2, 2.5)
           scene.add(fill)
+
+          const rim = new THREE.DirectionalLight(0xdde8ff, 0.35)
+          rim.position.set(0, 1.5, -3)
+          scene.add(rim)
 
           memoryAnchor = new THREE.Group()
           memoryAnchor.visible = false
@@ -529,9 +637,15 @@
           void (async () => {
             try {
               const [tex, gltf] = await assetsPromise
+              fitBoardToAspect(gltf.scene, orientation, imageAspect)
               applyPhotoTexture(gltf.scene, tex)
+              applyFrameColor(
+                gltf.scene,
+                Number.isFinite(frameHue) ? frameHue : 220
+              )
               tiltGroup.add(gltf.scene)
-              placeAtOrigin()
+              const { camera } = window.XR8.Threejs.xrScene()
+              placeAtOrigin(camera)
             } catch (e) {
               showError(e instanceof Error ? e.message : 'Could not load the memory.')
             }
@@ -542,20 +656,11 @@
         onUpdate: () => {
           if (!memoryAnchor || phase !== 'PLACED' || !tiltGroup) return
 
-          const { camera } = window.XR8.Threejs.xrScene()
-
-          faceDir.subVectors(camera.position, memoryAnchor.position)
-          if (faceDir.lengthSq() > 1e-8) {
-            faceDir.normalize()
-            billboardHelper.position.copy(memoryAnchor.position)
-            billboardHelper.lookAt(camera.position)
-            memoryAnchor.quaternion.slerp(billboardHelper.quaternion, BILLBOARD_SMOOTH)
-          }
-
           const t = (Date.now() - placedAtMs) / 1000
-          const bob = Math.sin(t * Math.PI * 2 * 0.35) * 0.016
-          const sway = Math.sin(t * Math.PI * 2 * 0.22) * 0.006
+          const bob = Math.sin(t * Math.PI * 2 * 0.38) * BOB_AMPLITUDE
+          const sway = Math.sin(t * Math.PI * 2 * 0.21) * 0.012
           tiltGroup.position.y = bob
+          tiltGroup.rotation.order = 'YXZ'
           tiltGroup.rotation.y = drag.yaw
           tiltGroup.rotation.x = drag.pitch
           tiltGroup.rotation.z = sway
@@ -581,6 +686,9 @@
       const startXr = async () => {
         if (xrRunning) return
         if (!imageUrl) return
+
+        const inRange = await verifyArRange()
+        if (!inRange) return
 
         const motionOk = await requestMotionIfNeeded()
         if (!motionOk) {

@@ -7,7 +7,6 @@ import { fileURLToPath } from 'url'
 import * as THREE from 'three'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
 
-// GLTFExporter expects browser APIs when serializing buffers.
 if (typeof globalThis.FileReader === 'undefined') {
   globalThis.FileReader = class FileReader {
     readAsArrayBuffer(blob) {
@@ -40,9 +39,9 @@ const exportGlb = (scene, outPath) =>
 
 const buildBoardScene = (w, h, depth) => {
   const frameMat = new THREE.MeshStandardMaterial({
-    color: 0x1a1714,
-    roughness: 0.84,
-    metalness: 0.02,
+    color: 0x6b4e9a,
+    roughness: 0.78,
+    metalness: 0.04,
     name: 'Frame',
   })
   const backMat = new THREE.MeshStandardMaterial({
@@ -64,16 +63,26 @@ const buildBoardScene = (w, h, depth) => {
   )
   board.name = 'MemoryBoard'
 
+  const framePad = 0.018
+  const frameDepth = 0.012
+  const frameBorder = new THREE.Mesh(
+    new THREE.BoxGeometry(w + framePad * 2, h + framePad * 2, frameDepth),
+    frameMat.clone()
+  )
+  frameBorder.name = 'FrameBorder'
+  frameBorder.position.z = depth / 2 + frameDepth / 2 + 0.001
+
   const root = new THREE.Group()
   root.name = 'MemoryCard'
   root.add(board)
+  root.add(frameBorder)
 
   const scene = new THREE.Scene()
   scene.add(root)
   return scene
 }
 
-const depth = 0.024
+const depth = 0.048
 
 await exportGlb(
   buildBoardScene(0.54, 0.96, depth),

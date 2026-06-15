@@ -17,6 +17,11 @@ import {
   type RuntimeClaimCampaign,
   type RuntimePoi,
 } from '@/lib/runtimeActive'
+import { distanceMeters } from '@/lib/geoAr'
+import {
+  activityKindForPin,
+  pushMemoryActivityNotice,
+} from '@/lib/memoryNotifications'
 import { navigateRuntimeIframeAr } from '@/lib/navigateRuntimeAr'
 
 const mapboxTokenState = getMapboxClientTokenState()
@@ -99,6 +104,39 @@ export function MemoriesMapCanvas({
     [signingWallet?.address]
   )
   const favOwnerKey = useMemo(() => (myAddress ? myAddress.toLowerCase() : 'guest'), [myAddress])
+  const seenPublicPinKeysRef = useRef<Set<string>>(new Set())
+  const publicPinsBootstrappedRef = useRef(false)
+
+  useEffect(() => {
+    if (!publicMemories.length) return
+    const seen = seenPublicPinKeysRef.current
+    if (!publicPinsBootstrappedRef.current) {
+      publicMemories.forEach((p) => seen.add(`${p.creator.toLowerCase()}-${p.memoryId}`))
+      publicPinsBootstrappedRef.current = true
+      return
+    }
+    for (const pin of publicMemories) {
+      const key = `${pin.creator.toLowerCase()}-${pin.memoryId}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      const dist = userPos
+        ? distanceMeters(userPos.lat, userPos.lng, pin.latitude, pin.longitude)
+        : null
+      const who =
+        myAddress && pin.creator.toLowerCase() === myAddress.toLowerCase()
+          ? 'You'
+          : `${pin.creator.slice(0, 6)}…${pin.creator.slice(-4)}`
+      pushMemoryActivityNotice({
+        kind: activityKindForPin(pin),
+        userLabel: who,
+        locationLabel: pin.title?.trim() || 'nearby',
+        thumbUrl: pin.imageUrl,
+        lat: pin.latitude,
+        lng: pin.longitude,
+        distanceM: dist,
+      })
+    }
+  }, [publicMemories, userPos, myAddress])
 
   useEffect(() => {
     setFavSet(readFavouriteKeys(favOwnerKey))

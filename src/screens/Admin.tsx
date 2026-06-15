@@ -14,7 +14,7 @@ import {
 import { pickEthereumSigningWallet, connectRainbowWallet } from '@/lib/privyWallet'
 import { appChain } from '@/lib/chain'
 import { fetchErc20Info } from '@/lib/erc20Read'
-import { adminCreateSession, adminDelete, adminGet, adminPost, adminRequestNonce } from '@/lib/adminApi'
+import { adminCreateSession, adminDelete, adminGet, adminPatch, adminPost, adminRequestNonce } from '@/lib/adminApi'
 import { AdminPreviewMap, type AdminMapExtraMarker } from '@/components/AdminPreviewMap'
 
 const TOKEN_KEY = 'memoria:adminToken'
@@ -161,6 +161,31 @@ export function Admin() {
 
   const [pins, setPins] = useState(defaultPins)
   const [fencePreview, setFencePreview] = useState<{ lat: number; lng: number; radiusM: number } | null>(null)
+  const [godMode, setGodMode] = useState(false)
+
+  useEffect(() => {
+    if (!token) {
+      setGodMode(false)
+      return
+    }
+    void adminGet('/api/admin/me', token)
+      .then((j: { godMode?: boolean }) => setGodMode(Boolean(j.godMode)))
+      .catch(() => setGodMode(false))
+  }, [token])
+
+  const handleToggleGodMode = useCallback(async () => {
+    if (!token) return
+    setBusy(true)
+    try {
+      const next = !godMode
+      await adminPatch('/api/admin/god-mode', token, { enabled: next })
+      setGodMode(next)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not update god mode')
+    } finally {
+      setBusy(false)
+    }
+  }, [token, godMode])
 
   const persistToken = useCallback((t: string) => {
     setToken(t)
@@ -335,6 +360,30 @@ export function Admin() {
 
       {token ? (
         <>
+          <label
+            style={{
+              display: 'flex',
+              gap: 10,
+              alignItems: 'center',
+              marginTop: 18,
+              padding: '10px 12px',
+              borderRadius: 12,
+              border: '1px solid rgba(232, 197, 71, 0.28)',
+              background: 'rgba(8, 7, 6, 0.55)',
+              maxWidth: 520,
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={godMode}
+              onChange={() => void handleToggleGodMode()}
+              disabled={busy}
+              aria-label="God mode"
+            />
+            <span style={{ fontSize: 14, lineHeight: 1.45 }}>
+              God mode — view any memory in AR regardless of your location
+            </span>
+          </label>
           <div className="mem-seg" role="tablist" style={{ marginTop: 20, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {tabBtn('campaigns', 'Campaigns')}
             {tabBtn('pois', 'POIs')}

@@ -9,6 +9,8 @@ export type ArMemoryPageParams = {
   latitude?: number
   longitude?: number
   orientation?: ArMemoryOrientation
+  aspect?: number
+  frameHue?: number
 }
 
 /** Standalone Three.js AR page — avoids React/WebGL stacking issues. */
@@ -19,6 +21,8 @@ export const buildArMemoryPageUrl = ({
   latitude,
   longitude,
   orientation,
+  aspect,
+  frameHue,
 }: ArMemoryPageParams): string => {
   const u = new URL('/ar-memory.html', window.location.origin)
   u.searchParams.set('imageUrl', resolveMediaPlaybackUrl(imageUrl.trim()))
@@ -31,20 +35,47 @@ export const buildArMemoryPageUrl = ({
     u.searchParams.set('lng', String(longitude))
   }
   if (orientation) u.searchParams.set('orientation', orientation)
+  if (aspect != null && Number.isFinite(aspect) && aspect > 0) {
+    u.searchParams.set('aspect', String(Math.min(3, Math.max(0.25, aspect))))
+  }
+  if (frameHue != null && Number.isFinite(frameHue)) {
+    u.searchParams.set('frameHue', String(Math.floor(frameHue) % 360))
+  }
   return u.pathname + u.search
 }
 
-/** Phone-camera style orientation from natural image dimensions. */
-export const detectImageOrientation = (imageUrl: string): Promise<ArMemoryOrientation> =>
+export type ImageDimensions = {
+  orientation: ArMemoryOrientation
+  aspect: number
+  width: number
+  height: number
+}
+
+export const detectImageDimensions = (imageUrl: string): Promise<ImageDimensions> =>
   new Promise((resolve) => {
     const img = new Image()
     img.crossOrigin = 'anonymous'
     img.onload = () => {
-      resolve(img.naturalHeight > img.naturalWidth ? 'portrait' : 'landscape')
+      const width = img.naturalWidth || 1
+      const height = img.naturalHeight || 1
+      const aspect = width / height
+      resolve({
+        orientation: height > width ? 'portrait' : 'landscape',
+        aspect,
+        width,
+        height,
+      })
     }
-    img.onerror = () => resolve('portrait')
+    img.onerror = () =>
+      resolve({ orientation: 'portrait', aspect: 9 / 16, width: 9, height: 16 })
     img.src = imageUrl
   })
+
+/** @deprecated use detectImageDimensions */
+export const detectImageOrientation = async (imageUrl: string): Promise<ArMemoryOrientation> => {
+  const d = await detectImageDimensions(imageUrl)
+  return d.orientation
+}
 
 export const prefetchArImage = (imageUrl: string): void => {
   const img = new Image()
