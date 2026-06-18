@@ -3,9 +3,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { distanceMeters } from '@/lib/geoAr'
+import { checkArViewAllowed } from '@/lib/arGeofence'
 import { ensureXrViewportDom } from '@/lib/ensureXrViewportDom'
 import { loadXrEngine } from '@/lib/loadXrEngine'
+import { resolveMediaPlaybackUrl } from '@/lib/memoryMedia'
 import { createAudioReactiveSphere, type AudioReactiveSphereHandle } from '@/lib/arAudioReactiveSphere'
+import { createMemoryImageCard } from '@/lib/arMemoryImageCard'
+import { buildArMemoryPageUrl } from '@/lib/arMemoryPageUrl'
 import { ArIframeScene } from '@/screens/ArIframeScene'
 
 type LocationState = {
@@ -25,6 +29,7 @@ type XrBuiltContent = {
   anchor: THREE.Group
   plane: THREE.Mesh
   shadow: THREE.Mesh
+  tiltGroup?: THREE.Group
   audioHandle?: AudioReactiveSphereHandle
 }
 
@@ -40,14 +45,7 @@ type MachineState =
 
 type GeoFix = { lat: number; lng: number; accuracyM?: number }
 
-type Hit = {
-  position: THREE.Vector3
-  normal: THREE.Vector3
-}
-
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v))
-
-const dist3 = (a: THREE.Vector3, b: THREE.Vector3) => a.distanceTo(b)
 
 function ArMemoryXR({ state }: { state: LocationState }) {
   const navigate = useNavigate()
@@ -99,7 +97,9 @@ function ArMemoryXR({ state }: { state: LocationState }) {
 
   const resolvedImageUrl = useMemo(() => {
     if (isAudioAr) return undefined
-    return state.imageUrl ?? debugImageUrl ?? undefined
+    const raw = state.imageUrl ?? debugImageUrl
+    if (!raw?.trim()) return undefined
+    return resolveMediaPlaybackUrl(raw.trim())
   }, [isAudioAr, state.imageUrl, debugImageUrl])
 
   const audioLoop = Boolean(state.audioLoop)
@@ -107,8 +107,7 @@ function ArMemoryXR({ state }: { state: LocationState }) {
   const targetLat = state.latitude
   const targetLng = state.longitude
 
-  // Note: we let the engine create/manage the camera canvas (`#overlayView3d`) to avoid
-  // duplicate ids and z-index issues.
+  // Camera/WebGL canvas is `#camerafeed` on body (same contract as threejs-world-effects-example).
   const machineRef = useRef<MachineState>('INIT')
   const geoRef = useRef<GeoFix | null>(null)
   const startAttemptRef = useRef(0)
@@ -149,14 +148,10 @@ function ArMemoryXR({ state }: { state: LocationState }) {
 
   const computeGate = (geo: GeoFix | null) => {
     if (!geo || targetLat == null || targetLng == null) {
-      return { nearHard: false, nearSoft: false, tooFar: false, distanceM: null as number | null }
+      return { distanceM: null as number | null }
     }
     const d = distanceMeters(geo.lat, geo.lng, targetLat, targetLng)
-    const accuracyM = geo.accuracyM
-    const nearHard = d <= 15 && accuracyM != null && accuracyM <= 15
-    const nearSoft = d <= 50 && (accuracyM == null || accuracyM <= 50)
-    const tooFar = d > 150 && accuracyM != null && accuracyM <= 50
-    return { nearHard, nearSoft, tooFar, distanceM: d }
+    return { distanceM: d }
   }
 
   // Placement refs (populated after XR8 starts)
@@ -173,68 +168,8 @@ function ArMemoryXR({ state }: { state: LocationState }) {
   const sphereHandleRef = useRef<AudioReactiveSphereHandle | null>(null)
   const audioPlaybackStartedRef = useRef(false)
 
-  const hitWindowRef = useRef<{
-    frames: number
-    last: THREE.Vector3 | null
-    samples: THREE.Vector3[]
-    normal: THREE.Vector3 | null
-  }>({ frames: 0, last: null, samples: [], normal: null })
-
-  const getHitCenter = (): Hit | null => {
-    try {
-      const XR8Any = (globalThis as unknown as { XR8?: any }).XR8
-      if (!XR8Any?.XrController?.hitTest) return null
-      const hits = XR8Any.XrController.hitTest(0.5, 0.5)
-      if (!Array.isArray(hits) || hits.length === 0) return null
-      const h = hits[0] as any
-
-      const pos = h.position ?? h
-      const p = new THREE.Vector3(pos.x ?? 0, pos.y ?? 0, pos.z ?? 0)
-
-      // Prefer provided normal; fall back to +Y
-      const n0 = h.normal
-      const n = n0 ? new THREE.Vector3(n0.x ?? 0, n0.y ?? 1, n0.z ?? 0) : new THREE.Vector3(0, 1, 0)
-      if (n.lengthSq() < 1e-6) n.set(0, 1, 0)
-      n.normalize()
-
-      return { position: p, normal: n }
-    } catch {
-      return null
-    }
-  }
-
-  const resetHitWindow = () => {
-    hitWindowRef.current = { frames: 0, last: null, samples: [], normal: null }
-  }
-
-  const updateLocking = (hit: Hit | null) => {
-    const w = hitWindowRef.current
-    if (!hit) {
-      resetHitWindow()
-      return { stable: false, avg: null as THREE.Vector3 | null, normal: null as THREE.Vector3 | null }
-    }
-
-    if (hit.normal.y < 0.8) {
-      resetHitWindow()
-      return { stable: false, avg: null, normal: null }
-    }
-
-    if (w.last && dist3(w.last, hit.position) > 0.05) {
-      resetHitWindow()
-    }
-
-    w.frames += 1
-    w.last = hit.position.clone()
-    w.samples.push(hit.position.clone())
-    if (w.samples.length > 24) w.samples.shift()
-    w.normal = hit.normal.clone()
-
-    const stable = w.frames >= 20
-    if (!stable) return { stable: false, avg: null, normal: null }
-
-    const avg = w.samples.reduce((acc, v) => acc.add(v), new THREE.Vector3()).multiplyScalar(1 / w.samples.length)
-    return { stable: true, avg, normal: w.normal }
-  }
+  /** One-finger drag rotates the memory card (yaw/pitch), relative to camera-facing pose */
+  const imageDragRef = useRef({ yaw: 0, pitch: 0, active: false, lastX: 0, lastY: 0 })
 
   const ensureThreeSceneConfigured = (renderer: THREE.WebGLRenderer, scene: THREE.Scene) => {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
@@ -270,6 +205,7 @@ function ArMemoryXR({ state }: { state: LocationState }) {
     const audioHandle = await createAudioReactiveSphere({
       audioUrl: resolvedAudioUrl,
       loop: audioLoop,
+      useCameraFeedTexture: true,
     })
     scene.add(audioHandle.anchor)
     ensureThreeSceneConfigured(renderer, scene)
@@ -286,52 +222,18 @@ function ArMemoryXR({ state }: { state: LocationState }) {
 
     addArLighting(scene)
 
-    // Memory plane
-    const tex = await new Promise<THREE.Texture>((resolve, reject) => {
-      const loader = new THREE.TextureLoader()
-      loader.load(
-        resolvedImageUrl,
-        (t) => resolve(t),
-        undefined,
-        () => reject(new Error('Failed to load image'))
-      )
-    })
-    tex.colorSpace = THREE.SRGBColorSpace
+    const card = await createMemoryImageCard({ imageUrl: resolvedImageUrl })
+    card.anchor.visible = false
+    scene.add(card.anchor)
 
-    const planeH = 1.35
-    const planeW = planeH
-    const geo = new THREE.PlaneGeometry(planeW, planeH)
-    const mat = new THREE.MeshStandardMaterial({
-      map: tex,
-      side: THREE.DoubleSide,
-      transparent: true,
-      roughness: 0.35,
-      metalness: 0.1,
-      envMapIntensity: 0.8
-    })
-    const plane = new THREE.Mesh(geo, mat)
-    plane.castShadow = true
-
-    // Shadow catcher
-    const shadowGeo = new THREE.PlaneGeometry(3.5, 3.5)
-    const shadowMat = new THREE.ShadowMaterial({ opacity: 0.35 })
-    const shadow = new THREE.Mesh(shadowGeo, shadowMat)
-    shadow.rotation.x = -Math.PI / 2
-    shadow.receiveShadow = true
-
-    // Anchor group (positioned when placed)
-    const anchor = new THREE.Group()
-    anchor.add(shadow)
-    anchor.add(plane)
-
-    // Start hidden until placed
-    anchor.visible = false
-    scene.add(anchor)
-
-    // Warm up env map
     ensureThreeSceneConfigured(renderer, scene)
 
-    return { anchor, plane, shadow }
+    return {
+      anchor: card.anchor,
+      plane: card.plane,
+      shadow: card.shadow,
+      tiltGroup: card.tiltGroup,
+    }
   }
 
   // Geo + state machine driver
@@ -345,7 +247,7 @@ function ArMemoryXR({ state }: { state: LocationState }) {
     }
 
     if (!hasGeoTarget) {
-      if (debugEnabled && hasPayload) {
+      if (hasPayload) {
         setMachine('IN_RANGE_STARTING_AR', copyOverlay.starting)
         return
       }
@@ -354,12 +256,28 @@ function ArMemoryXR({ state }: { state: LocationState }) {
     }
 
     if (debugEnabled) {
-      // Debug mode: skip proximity gating so we can debug XR startup anywhere.
       setMachine('IN_RANGE_STARTING_AR', copyOverlay.starting)
       return
     }
 
     setMachine('GEO_ACQUIRING', copyOverlay.gettingLocation)
+
+    let acquired = false
+    const beginAr = async (distance: number | null) => {
+      if (acquired) return
+      if (targetLat == null || targetLng == null) return
+
+      const gate = await checkArViewAllowed(targetLat, targetLng)
+      if (!gate.ok) {
+        acquired = true
+        setMachine('OUT_OF_RANGE_BLOCKED', null, gate.message)
+        return
+      }
+
+      acquired = true
+      setDistanceM(gate.distanceM ?? distance)
+      setMachine('IN_RANGE_STARTING_AR', copyOverlay.starting)
+    }
 
     let cancelled = false
     const watchId = navigator.geolocation.watchPosition(
@@ -372,33 +290,27 @@ function ArMemoryXR({ state }: { state: LocationState }) {
         }
         const gate = computeGate(geoRef.current)
         setDistanceM(gate.distanceM)
-
-        const cur = machineRef.current
-        if (cur === 'GEO_ACQUIRING' || cur === 'OUT_OF_RANGE_BLOCKED') {
-          if (gate.tooFar) {
-            setMachine('OUT_OF_RANGE_BLOCKED', copyOverlay.tooFar)
-            return
-          }
-          if (gate.nearHard || gate.nearSoft) {
-            setMachine('IN_RANGE_STARTING_AR', copyOverlay.starting)
-            return
-          }
-          setMachine('GEO_ACQUIRING', copyOverlay.moveCloser(gate.distanceM))
+        if (machineRef.current === 'GEO_ACQUIRING' || machineRef.current === 'OUT_OF_RANGE_BLOCKED') {
+          void beginAr(gate.distanceM)
         }
       },
-      (err) => {
+      () => {
         if (cancelled) return
-        if (err.code === err.PERMISSION_DENIED) {
-          setMachine('ERROR', null, 'Location permission is required for AR. Enable location and try again.')
-          return
+        if (machineRef.current === 'GEO_ACQUIRING') {
+          setMachine('ERROR', null, 'Location is required to view this memory in AR.')
         }
-        setMachine('ERROR', null, 'Unable to get your location for AR. Check GPS and try again.')
       },
       { enableHighAccuracy: true, maximumAge: 1000, timeout: 15_000 }
     )
 
+    const fallbackTimer = window.setTimeout(() => {
+      if (cancelled || acquired) return
+      void beginAr(computeGate(geoRef.current).distanceM)
+    }, 8_000)
+
     return () => {
       cancelled = true
+      window.clearTimeout(fallbackTimer)
       navigator.geolocation.clearWatch(watchId)
     }
   }, [
@@ -411,13 +323,71 @@ function ArMemoryXR({ state }: { state: LocationState }) {
     debugEnabled,
   ])
 
+  /** Allow one-finger drag on the camera canvas for image-card rotation (otherwise AR raises canvas above UI with pointer-events: none). */
+  useEffect(() => {
+    const el = document.getElementById('camerafeed')
+    if (!el) return
+    if (ui.state === 'PLACED' && !isAudioAr) {
+      el.style.setProperty('pointer-events', 'auto', 'important')
+    } else {
+      el.style.setProperty('pointer-events', 'none', 'important')
+    }
+  }, [ui.state, isAudioAr])
+
+  const MAX_CARD_DRAG_YAW = 0.72
+  const MAX_CARD_DRAG_PITCH = 0.5
+  const CARD_DRAG_SENS = 0.0045
+
+  useEffect(() => {
+    if (ui.state !== 'PLACED' || isAudioAr) return
+    const el = document.getElementById('camerafeed')
+    if (!el) return
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return
+      const d = imageDragRef.current
+      d.active = true
+      d.lastX = e.touches[0].clientX
+      d.lastY = e.touches[0].clientY
+    }
+
+    const onTouchMove = (e: TouchEvent) => {
+      const d = imageDragRef.current
+      if (!d.active || e.touches.length !== 1) return
+      const x = e.touches[0].clientX
+      const y = e.touches[0].clientY
+      const dx = x - d.lastX
+      const dy = y - d.lastY
+      d.lastX = x
+      d.lastY = y
+      d.yaw = clamp(d.yaw + dx * CARD_DRAG_SENS, -MAX_CARD_DRAG_YAW, MAX_CARD_DRAG_YAW)
+      d.pitch = clamp(d.pitch - dy * CARD_DRAG_SENS, -MAX_CARD_DRAG_PITCH, MAX_CARD_DRAG_PITCH)
+      e.preventDefault()
+    }
+
+    const onTouchEnd = () => {
+      imageDragRef.current.active = false
+    }
+
+    el.addEventListener('touchstart', onTouchStart, { passive: true })
+    el.addEventListener('touchmove', onTouchMove, { passive: false })
+    el.addEventListener('touchend', onTouchEnd)
+    el.addEventListener('touchcancel', onTouchEnd)
+
+    return () => {
+      el.removeEventListener('touchstart', onTouchStart)
+      el.removeEventListener('touchmove', onTouchMove)
+      el.removeEventListener('touchend', onTouchEnd)
+      el.removeEventListener('touchcancel', onTouchEnd)
+    }
+  }, [ui.state, isAudioAr])
+
   // XR8 boot + render loop via pipeline module
   useEffect(() => {
     if (ui.state !== 'IN_RANGE_STARTING_AR') return
 
     let stopped = false
     let xrRunning = false
-    let rafId: number | null = null
 
     const XR8Any = () => (globalThis as unknown as { XR8?: any }).XR8
     const isPermissionError = (e: unknown) => {
@@ -440,14 +410,6 @@ function ArMemoryXR({ state }: { state: LocationState }) {
       } catch {
         // ignore
       }
-      if (rafId != null) {
-        try {
-          cancelAnimationFrame(rafId)
-        } catch {
-          // ignore
-        }
-        rafId = null
-      }
       xrRunning = false
     }
 
@@ -459,23 +421,15 @@ function ArMemoryXR({ state }: { state: LocationState }) {
       })
     }
 
-    /**
-     * Engine mounts `#arview` on `body` with inline z-index:-1 (below `#root`'s z-index:1).
-     * `html.mem-ar-stack #arview` in index.css uses !important; we also set inline as a fallback.
-     */
+    /** Ensure `#camerafeed` composites above app chrome (CSS + inline fallback). */
     const liftArviewAboveAppChrome = () => {
       try {
-        const arview = document.getElementById('arview') as HTMLElement | null
-        if (!arview) return
-        arview.style.setProperty('z-index', '2', 'important')
-        arview.style.setProperty('pointer-events', 'none', 'important')
-        arview.style.setProperty('opacity', '1', 'important')
-        arview.style.setProperty('visibility', 'visible', 'important')
-        const canvas = document.getElementById('overlayView3d') as HTMLElement | null
-        if (canvas) {
-          canvas.style.setProperty('opacity', '1', 'important')
-          canvas.style.setProperty('visibility', 'visible', 'important')
-        }
+        const canvas = document.getElementById('camerafeed') as HTMLElement | null
+        if (!canvas) return
+        canvas.style.setProperty('z-index', '2', 'important')
+        canvas.style.setProperty('pointer-events', 'none', 'important')
+        canvas.style.setProperty('opacity', '1', 'important')
+        canvas.style.setProperty('visibility', 'visible', 'important')
       } catch {
         // ignore
       }
@@ -483,11 +437,10 @@ function ArMemoryXR({ state }: { state: LocationState }) {
 
     const logArDomSnapshot = (label: string) => {
       try {
-        const arview = document.getElementById('arview')
-        const canvas = document.getElementById('overlayView3d') as HTMLCanvasElement | null
-        const z = arview ? getComputedStyle(arview).zIndex : '—'
+        const canvas = document.getElementById('camerafeed') as HTMLCanvasElement | null
+        const z = canvas ? getComputedStyle(canvas).zIndex : '—'
         const wh = canvas ? `${canvas.width}x${canvas.height}` : 'missing'
-        pushDebug(`${label} arview=${Boolean(arview)} z(calc)=${z} canvas=${wh}`)
+        pushDebug(`${label} camerafeed=${Boolean(canvas)} z(calc)=${z} canvas=${wh}`)
       } catch {
         pushDebug(`${label} DOM snapshot failed`)
       }
@@ -519,7 +472,7 @@ function ArMemoryXR({ state }: { state: LocationState }) {
 
     const sizeCanvasToViewport = (x: any) => {
       // Always ensure DOM before lookup — resize handlers and retries can run before `startXr`
-      // finishes; stale bundles also used to call `XR8.run({})` without mounting `#overlayView3d`.
+      // finishes; stale bundles also used to call `XR8.run({})` without mounting `#camerafeed`.
       const c = ensureXrViewportDom()
       const dpr = Math.min(window.devicePixelRatio || 1, 2)
       const w = Math.max(1, Math.floor(window.innerWidth * dpr))
@@ -549,6 +502,10 @@ function ArMemoryXR({ state }: { state: LocationState }) {
       pushDebug('startXr()')
       try {
         await loadXrEngine()
+        await new Promise<void>((resolve) => {
+          if (XR8Any()) resolve()
+          else window.addEventListener('xrloaded', () => resolve(), { once: true })
+        })
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'Failed to load 8th Wall runtime.'
         setMachine('ERROR', null, msg)
@@ -586,6 +543,17 @@ function ArMemoryXR({ state }: { state: LocationState }) {
       }
 
       let content: XrBuiltContent | null = null
+
+      const positionAudioVisualizerAnchor = () => {
+        if (!xrSceneRef.current || !content?.audioHandle) return
+        const cam = xrSceneRef.current.camera
+        const dir = new THREE.Vector3()
+        cam.getWorldDirection(dir)
+        const p = cam.position.clone().addScaledVector(dir, 1.35)
+        p.y = Math.max(0.12, cam.position.y - 1.25)
+        content.anchor.position.copy(p)
+        content.anchor.visible = true
+      }
 
       const logicModule = () => ({
         name: 'memoria-state-machine',
@@ -626,82 +594,91 @@ function ArMemoryXR({ state }: { state: LocationState }) {
             return
           }
 
-          // Once tracking is ready, we can scan for planes.
-          const gate = computeGate(geoRef.current)
-          setMachine(
-            'SCANNING_FOR_PLANE',
-            gate.nearHard ? copyOverlay.scan : copyOverlay.scanIndoor
-          )
+          // No plane scan: Landing Page was removed (splash blocked startup); audio + image both go straight to PLACED.
+          if (!content) return
+
+          if (!isAudioAr) {
+            imageDragRef.current = { yaw: 0, pitch: 0, active: false, lastX: 0, lastY: 0 }
+            content.anchor.visible = true
+            const now = Date.now()
+            placedRef.current = {
+              anchor: content.anchor,
+              plane: content.plane,
+              shadow: content.shadow,
+              baseY: 0,
+              placedAtMs: now,
+              dropAtMs: now,
+            }
+            setMachine('PLACED', null)
+            return
+          }
+
+          content.anchor.visible = true
+          const nowAudio = Date.now()
+          placedRef.current = {
+            anchor: content.anchor,
+            plane: content.plane,
+            shadow: content.shadow,
+            baseY: content.plane.position.y,
+            placedAtMs: nowAudio,
+            dropAtMs: nowAudio,
+          }
+          setMachine('PLACED', null)
         },
         onUpdate: () => {
           if (stopped) return
           if (!xrSceneRef.current || !content) return
 
           const cur = machineRef.current
-          if (cur === 'SCANNING_FOR_PLANE') {
-            const hit = getHitCenter()
-            if (!hit) return
-            resetHitWindow()
-            setMachine('LOCKING_PLACEMENT', copyOverlay.locking)
-            return
-          }
-
-          if (cur === 'LOCKING_PLACEMENT') {
-            const hit = getHitCenter()
-            const locked = updateLocking(hit)
-            if (!locked.stable || !locked.avg || !locked.normal) return
-
-            // Place once
-            const { anchor, plane } = content
-            anchor.visible = true
-            anchor.position.copy(locked.avg)
-
-            const cam = xrSceneRef.current.camera as any
-            const camPos = cam?.position ? (cam.position as THREE.Vector3) : new THREE.Vector3(0, 0, 0)
-
-            // Image memory: billboard toward camera; audio sphere: symmetric — keep factory pose
-            if (!content.audioHandle) {
-              plane.position.set(0, 0.15, 0)
-              const look = new THREE.Vector3(camPos.x, locked.avg.y + 0.15, camPos.z)
-              plane.lookAt(look)
-              plane.rotation.x = 0
-              plane.rotation.z = 0
-            }
-
-            const now = Date.now()
-            placedRef.current = {
-              anchor,
-              plane,
-              shadow: content.shadow,
-              baseY: plane.position.y,
-              placedAtMs: now,
-              dropAtMs: now
-            }
-
-            setMachine('PLACED', null)
-            return
-          }
 
           if (cur === 'PLACED') {
             const p = placedRef.current
             if (!p) return
 
-            if (content.audioHandle && !audioPlaybackStartedRef.current) {
-              audioPlaybackStartedRef.current = true
-              void content.audioHandle.startPlayback()
+            // Audio: reactive sphere + optional camera texture (re-anchor each frame — no SLAM placement dependency)
+            if (content.audioHandle) {
+              positionAudioVisualizerAnchor()
+
+              if (!audioPlaybackStartedRef.current) {
+                audioPlaybackStartedRef.current = true
+                void content.audioHandle.startPlayback()
+              }
+              content.audioHandle.onFrame()
+
+              const t = (Date.now() - p.dropAtMs) / 1000
+
+              const dropT = clamp((Date.now() - p.dropAtMs) / 600, 0, 1)
+              const easeOut = 1 - (1 - dropT) * (1 - dropT)
+              const dropY = p.baseY + (1 - easeOut) * 0.4
+
+              const bob = Math.sin(t * Math.PI * 2 * 0.9) * 0.03
+              p.plane.position.y = dropY + bob
+              return
             }
-            content.audioHandle?.onFrame()
 
-            const t = (Date.now() - p.dropAtMs) / 1000
+            // Image card: fixed distance in front of camera, user yaw/pitch on tiltGroup, gentle bob
+            const cam = xrSceneRef.current.camera
+            const dist = 1.06
+            const dir = new THREE.Vector3()
+            cam.getWorldDirection(dir)
+            const pos = cam.position.clone().addScaledVector(dir, dist)
+            content.anchor.position.copy(pos)
+            const towardCam = new THREE.Vector3().subVectors(cam.position, content.anchor.position)
+            if (towardCam.lengthSq() > 1e-8) {
+              towardCam.normalize()
+              content.anchor.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), towardCam)
+            }
 
-            // Drop-in (first 0.6s)
-            const dropT = clamp((Date.now() - p.dropAtMs) / 600, 0, 1)
-            const easeOut = 1 - (1 - dropT) * (1 - dropT)
-            const dropY = p.baseY + (1 - easeOut) * 0.4
-
-            // Bob after drop (still ok to apply during drop)
-            const bob = Math.sin(t * Math.PI * 2 * 0.9) * 0.03
-            p.plane.position.y = dropY + bob
+            const tg = content.tiltGroup
+            if (tg) {
+              const drag = imageDragRef.current
+              tg.rotation.order = 'YXZ'
+              tg.rotation.y = drag.yaw
+              tg.rotation.x = drag.pitch
+              const tt = (Date.now() - p.dropAtMs) / 1000
+              const bob = Math.sin(tt * Math.PI * 2 * 0.88) * 0.038
+              tg.position.y = bob
+            }
             return
           }
         }
@@ -733,52 +710,23 @@ function ArMemoryXR({ state }: { state: LocationState }) {
           }
         }
 
-        let frames = 0
-        let lastReportAt = Date.now()
-        const tryHookPreRender = (label: string) => {
-          if (!x.runPreRender) {
-            pushDebug('XR8.runPreRender missing')
-            return
-          }
-          try {
-            x.runPreRender(() => {
-              frames += 1
-              if (frames === 1) pushDebug('runPreRender first frame')
-              const now = Date.now()
-              if (now - lastReportAt > 1000) {
-                pushDebug(`runPreRender fps~${frames}`)
-                frames = 0
-                lastReportAt = now
-              }
-            })
-            pushDebug(`XR8.runPreRender hooked (${label})`)
-          } catch (e) {
-            const msg = e instanceof Error ? e.message : String(e)
-            pushDebug(`XR8.runPreRender hook error (${label}): ${msg}`)
+        const hostGlobals = globalThis as unknown as {
+          XRExtras?: {
+            FullWindowCanvas?: { pipelineModule?: () => unknown }
+            Loading?: { pipelineModule?: () => unknown }
+            RuntimeError?: { pipelineModule?: () => unknown }
           }
         }
 
-        const xr8Bag = x as Record<string, unknown>
-        const g = globalThis as unknown as { XR8?: Record<string, unknown> }
-        const cameraPixelArray = xr8Bag.CameraPixelArray ?? g.XR8?.CameraPixelArray
-        const yuvPixelsArray = xr8Bag.YuvPixelsArray ?? g.XR8?.YuvPixelsArray
-        /** Prefer RGB camera texture; YUV is alternate feed in the same engine build */
-        const pixelFeedApi = (cameraPixelArray ?? yuvPixelsArray) as
-          | { pipelineModule?: (opts?: object) => unknown }
-          | undefined
-
         pushDebug(
-          `XR8 modules: CameraPixelArray=${Boolean(cameraPixelArray)} YuvPixelsArray=${Boolean(yuvPixelsArray)} Canvas=${Boolean(x.Canvas)} Camera=${Boolean(x.Camera)} GlTextureRenderer=${Boolean(
-            x.GlTextureRenderer
-          )} Threejs=${Boolean(x.Threejs)} XrController=${Boolean(x.XrController)}`
-        )
-        pushDebug(
-          `sdkFix=v3 pixelFeed=${cameraPixelArray ? 'CameraPixelArray' : yuvPixelsArray ? 'YuvPixelsArray' : 'MISSING'}`
+          `XR8 modules: GlTextureRenderer=${Boolean(x.GlTextureRenderer)} Threejs=${Boolean(x.Threejs)} XrController=${Boolean(
+            x.XrController
+          )} XRExtras=${Boolean(hostGlobals.XRExtras)}`
         )
 
         const xrCanvas = ensureXrViewportDom()
         pushDebug(
-          `XR8 bootstrap sdkFix=v3 viewport ok #arview=${Boolean(document.getElementById('arview'))} canvas=${xrCanvas.width}x${xrCanvas.height}`
+          `viewport #camerafeed=${Boolean(document.getElementById('camerafeed'))} canvas=${xrCanvas.width}x${xrCanvas.height}`
         )
 
         sizeCanvasToViewport(x)
@@ -863,19 +811,40 @@ function ArMemoryXR({ state }: { state: LocationState }) {
           }
         }
 
-        // CameraPixelArray (or YuvPixelsArray) registers the texture provider GlTextureRenderer uses; without it
-        // the framebuffer can stay blank (often reads as white behind transparent clears).
-        // Order: feed → GL background → Three.js → controller → app logic.
-        const modules = [
-          debugPipelineModule(),
-          pixelFeedApi?.pipelineModule?.(),
-          x.Canvas?.pipelineModule?.(),
-          x.Camera?.pipelineModule?.(),
-          x.GlTextureRenderer?.pipelineModule?.(),
-          x.Threejs?.pipelineModule?.(),
-          x.XrController?.pipelineModule?.(),
-          logicModule()
-        ].filter(Boolean)
+        // Same module order as https://github.com/8thwall/threejs-world-effects-example — GlTextureRenderer draws
+        // the camera feed; FullWindowCanvas sizes the canvas; our logic module runs last.
+        const modules: unknown[] = []
+        const pushMod = (m: unknown) => {
+          if (m) modules.push(m)
+        }
+        if (debugEnabled) pushMod(debugPipelineModule())
+        pushMod(x.GlTextureRenderer?.pipelineModule?.())
+        pushMod(x.Threejs?.pipelineModule?.())
+        pushMod(x.XrController?.pipelineModule?.())
+        if (hostGlobals.XRExtras?.FullWindowCanvas?.pipelineModule) {
+          try {
+            pushMod(hostGlobals.XRExtras.FullWindowCanvas.pipelineModule())
+            pushDebug('XRExtras.FullWindowCanvas ok')
+          } catch (e) {
+            pushDebug(`FullWindowCanvas skip: ${e instanceof Error ? e.message : String(e)}`)
+          }
+        }
+        if (hostGlobals.XRExtras?.Loading?.pipelineModule) {
+          try {
+            pushMod(hostGlobals.XRExtras.Loading.pipelineModule())
+            pushDebug('XRExtras.Loading ok')
+          } catch (e) {
+            pushDebug(`Loading skip: ${e instanceof Error ? e.message : String(e)}`)
+          }
+        }
+        if (hostGlobals.XRExtras?.RuntimeError?.pipelineModule) {
+          try {
+            pushMod(hostGlobals.XRExtras.RuntimeError.pipelineModule())
+          } catch {
+            // ignore
+          }
+        }
+        pushMod(logicModule())
         pushDebug(`pipelineModules count=${modules.length}`)
 
         if (x.addCameraPipelineModules) {
@@ -911,107 +880,37 @@ function ArMemoryXR({ state }: { state: LocationState }) {
             // ignore
           }
 
-          // Some XR8 builds require the host app to drive the render loop (see engine’s Babylon/PlayCanvas adapters).
-          // If we don't call runPreRender/runRender/runPostRender, the camera feed can remain blank even though the
-          // pipeline modules attached successfully.
-          const startRenderLoop = () => {
-            if (rafId != null) return
-            let ticks = 0
-            let lastTickReportAt = Date.now()
-            let preErr = 0
-            let renderErr = 0
-            let postErr = 0
-            const tick = () => {
+          pushDebug('XR8 internal render loop (no host RAF — matches threejs-world-effects-example)')
+
+          if (debugEnabled) {
+            const probeGlOnce = (label: string) => {
               if (stopped) return
-              // Important: some engine builds throw inside `runPreRender` (trace flush not initialized).
-              // We still want to attempt `runRender` / `runPostRender` even if pre-render fails.
-              if (x.runPreRender) {
-                try {
-                  // XR8.runPreRender is overloaded in some builds:
-                  // - runPreRender(fn) registers a callback
-                  // - runPreRender(timestampMs) advances the internal frame
-                  x.runPreRender(Date.now())
-                } catch (e) {
-                  preErr += 1
-                  const msg = e instanceof Error ? e.message : String(e)
-                  if (preErr <= 3) pushDebug(`renderLoop runPreRender error: ${msg}`)
+              try {
+                const c = document.getElementById('camerafeed') as HTMLCanvasElement | null
+                if (!c) {
+                  pushDebug(`GL probe(${label}): canvas missing`)
+                  return
                 }
-              }
-              if (x.runRender) {
-                try {
-                  x.runRender()
-                } catch (e) {
-                  renderErr += 1
-                  const msg = e instanceof Error ? e.message : String(e)
-                  if (renderErr <= 3) pushDebug(`renderLoop runRender error: ${msg}`)
+                const gl =
+                  (c.getContext('webgl2') as unknown as WebGLRenderingContext | null) ??
+                  (c.getContext('webgl') as WebGLRenderingContext | null)
+                if (!gl) {
+                  pushDebug(`GL probe(${label}): no webgl context`)
+                  return
                 }
+                const px = new Uint8Array(4)
+                gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px)
+                const err = gl.getError()
+                pushDebug(`GL probe(${label}): px=[${px[0]},${px[1]},${px[2]},${px[3]}] err=${err}`)
+              } catch (e) {
+                const msg = e instanceof Error ? e.message : String(e)
+                pushDebug(`GL probe(${label}) error: ${msg}`)
               }
-              if (x.runPostRender) {
-                try {
-                  x.runPostRender()
-                } catch (e) {
-                  postErr += 1
-                  const msg = e instanceof Error ? e.message : String(e)
-                  if (postErr <= 3) pushDebug(`renderLoop runPostRender error: ${msg}`)
-                }
-              }
-              ticks += 1
-              const now = Date.now()
-              if (now - lastTickReportAt > 1000) {
-                pushDebug(`renderLoop ticks~${ticks} errs pre=${preErr} render=${renderErr} post=${postErr}`)
-                ticks = 0
-                lastTickReportAt = now
-              }
-              rafId = requestAnimationFrame(tick)
             }
-            pushDebug('renderLoop started')
-            rafId = requestAnimationFrame(tick)
+            window.setTimeout(() => probeGlOnce('t+350ms'), 350)
+            window.setTimeout(() => probeGlOnce('t+1200ms'), 1200)
+            window.setTimeout(() => probeGlOnce('t+2500ms'), 2500)
           }
-          startRenderLoop()
-
-          // Some engine builds can't hook runPreRender until after XR8.run initializes internals.
-          // We try once now, and retry shortly after.
-          tryHookPreRender('post-run')
-          window.setTimeout(() => {
-            if (stopped) return
-            tryHookPreRender('post-run retry')
-          }, 250)
-
-          window.setTimeout(() => {
-            if (stopped) return
-            if (frames === 0) pushDebug('WARNING: no runPreRender frames after 1s')
-          }, 1000)
-
-          // GL sanity probe: read one pixel. If the camera background is rendering, this should be non-zero
-          // most of the time (even if our Three content isn't placed yet).
-          const probeGlOnce = (label: string) => {
-            if (stopped) return
-            try {
-              const c = document.getElementById('overlayView3d') as HTMLCanvasElement | null
-              if (!c) {
-                pushDebug(`GL probe(${label}): canvas missing`)
-                return
-              }
-              const gl =
-                (c.getContext('webgl2') as unknown as WebGLRenderingContext | null) ??
-                (c.getContext('webgl') as WebGLRenderingContext | null)
-              if (!gl) {
-                pushDebug(`GL probe(${label}): no webgl context`)
-                return
-              }
-              const px = new Uint8Array(4)
-              gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px)
-              const err = gl.getError()
-              pushDebug(`GL probe(${label}): px=[${px[0]},${px[1]},${px[2]},${px[3]}] err=${err}`)
-            } catch (e) {
-              const msg = e instanceof Error ? e.message : String(e)
-              pushDebug(`GL probe(${label}) error: ${msg}`)
-            }
-          }
-
-          window.setTimeout(() => probeGlOnce('t+350ms'), 350)
-          window.setTimeout(() => probeGlOnce('t+1200ms'), 1200)
-          window.setTimeout(() => probeGlOnce('t+2500ms'), 2500)
 
           scheduleArviewAfterRun(x)
         } else {
@@ -1067,32 +966,41 @@ function ArMemoryXR({ state }: { state: LocationState }) {
       audioPlaybackStartedRef.current = false
       xrSceneRef.current = null
       placedRef.current = null
-      resetHitWindow()
     }
-  }, [ui.state, copyOverlay, isAudioAr, resolvedImageUrl, resolvedAudioUrl, audioLoop])
+  }, [ui.state, copyOverlay, isAudioAr, resolvedImageUrl, resolvedAudioUrl, audioLoop, debugEnabled])
 
   const overlay = ui.error ? null : ui.overlay
   const showBack = true
 
   const requestMotionPermissions = async (pushDebug?: (line: string) => void) => {
     const w = window as unknown as {
-      DeviceMotionEvent?: { requestPermission?: () => Promise<'granted' | 'denied'> }
-      DeviceOrientationEvent?: { requestPermission?: () => Promise<'granted' | 'denied'> }
-    }
-
-    const tryReq = async (label: string, req?: () => Promise<'granted' | 'denied'>) => {
-      if (!req) return
-      try {
-        const res = await req()
-        pushDebug?.(`${label} permission=${res}`)
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e)
-        pushDebug?.(`${label} permission error: ${msg}`)
+      DeviceMotionEvent?: {
+        requestPermission?: (this: typeof DeviceMotionEvent) => Promise<'granted' | 'denied'>
+      }
+      DeviceOrientationEvent?: {
+        requestPermission?: (this: typeof DeviceOrientationEvent) => Promise<'granted' | 'denied'>
       }
     }
 
-    await tryReq('DeviceMotion', w.DeviceMotionEvent?.requestPermission)
-    await tryReq('DeviceOrientation', w.DeviceOrientationEvent?.requestPermission)
+    const tryReq = async (
+      label: string,
+      ctor: { requestPermission?: () => Promise<'granted' | 'denied'> } | undefined
+    ) => {
+      const req = ctor?.requestPermission
+      if (!req) return
+      try {
+        const res = await req.call(ctor)
+        pushDebug?.(`${label} permission=${res}`)
+        if (res !== 'granted') throw new Error(`${label} permission denied`)
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        pushDebug?.(`${label} permission error: ${msg}`)
+        throw e
+      }
+    }
+
+    await tryReq('DeviceOrientation', w.DeviceOrientationEvent)
+    await tryReq('DeviceMotion', w.DeviceMotionEvent)
   }
 
   const handleTapToStart = async () => {
@@ -1120,7 +1028,7 @@ function ArMemoryXR({ state }: { state: LocationState }) {
 
   return (
     <>
-      {/* Engine injects `#arview` + `#overlayView3d` on body; no full-viewport wrapper (WebKit black composite). */}
+      {/* Engine draws to `#camerafeed` on body (threejs-world-effects-example contract). */}
 
       {overlay ? (
         <div
@@ -1288,16 +1196,42 @@ function ArMemoryXR({ state }: { state: LocationState }) {
 export function AR() {
   const location = useLocation()
   const state = (location.state ?? {}) as LocationState
+
+  const imageRedirectUrl = useMemo(() => {
+    if (state.mode === 'iframe') return null
+    if (state.audioUrl?.trim()) return null
+    const img = state.imageUrl?.trim()
+    if (!img) return null
+    return buildArMemoryPageUrl({
+      imageUrl: img,
+      latitude: state.latitude,
+      longitude: state.longitude,
+    })
+  }, [state])
+
+  useEffect(() => {
+    if (!imageRedirectUrl) return
+    window.location.replace(imageRedirectUrl)
+  }, [imageRedirectUrl])
+
+  if (imageRedirectUrl) {
+    return null
+  }
+
   if (state.mode === 'iframe' && state.iframeUrl && state.latitude != null && state.longitude != null) {
-    return (
-      <ArIframeScene
-        iframeUrl={state.iframeUrl}
-        latitude={state.latitude}
-        longitude={state.longitude}
-        geoRadiusM={state.geoRadiusM}
-        sceneName={state.sceneName}
-      />
-    )
+    const lat = Number(state.latitude)
+    const lng = Number(state.longitude)
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      return (
+        <ArIframeScene
+          iframeUrl={state.iframeUrl}
+          latitude={lat}
+          longitude={lng}
+          geoRadiusM={state.geoRadiusM}
+          sceneName={state.sceneName}
+        />
+      )
+    }
   }
   return <ArMemoryXR state={state} />
 }

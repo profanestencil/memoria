@@ -13,6 +13,7 @@ import { WalletProfileButton } from '@/components/WalletProfileButton'
 import type { MemoryPin } from '@/lib/memoryPin'
 import { loadOptimisticPins, saveOptimisticPins } from '@/lib/optimisticPinsStorage'
 import { seedMemoryInIndexer } from '@/lib/indexerSeed'
+import { pushMemoryActivityNotice } from '@/lib/memoryNotifications'
 import { applyCampaignOverlaysToBlob } from '@/lib/campaignOverlay'
 import type { ActiveCampaign } from '@/lib/runtimeActive'
 import { incrementMintCount } from '@/lib/tipNudge'
@@ -508,6 +509,16 @@ export function Preview() {
       setMintingOverlay((prev) => (prev ? { ...prev, title: 'Done', detail: 'Opening the map…' } : prev))
       const lat = published.latitudeE7 / 1e7
       const lng = published.longitudeE7 / 1e7
+      pushMemoryActivityNotice({
+        kind: 'minted',
+        userLabel: 'You',
+        locationLabel: published.title?.trim() || 'your drop',
+        thumbUrl: published.coverImageUrl,
+        lat,
+        lng,
+        distanceM: 0,
+        priority: 0,
+      })
       const nextUrl = `/map?lat=${encodeURIComponent(String(lat))}&lng=${encodeURIComponent(String(lng))}`
       navigate(nextUrl, { state: { mapRefreshEpoch: Date.now() } })
     } catch (e) {

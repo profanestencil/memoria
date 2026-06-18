@@ -16,8 +16,22 @@
       rel="stylesheet"
     />
     <title>Memoria</title>
+    <!-- 8th Wall: engine + XRExtras (no Landing Page — its pipeline shows the branded splash and can block AR start). -->
+    <script
+      src="/external/xr/xr.js"
+      async
+      crossorigin="anonymous"
+      data-preload-chunks="slam"
+      data-8thwall="xr"
+    ></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/@8thwall/xrextras@1/dist/xrextras.js"
+      crossorigin="anonymous"
+    ></script>
   </head>
   <body>
+    <!-- 8th Wall camera canvas (official threejs-world-effects-example contract). Hidden until AR route mounts. -->
+    <canvas id="camerafeed" class="8w overlayView3d" aria-hidden="true"></canvas>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#000000" />
+    <title>Memoria — AR</title>
+    <script>
+      ;(function () {
+        var p = new URLSearchParams(location.search)
+        var u = p.get('imageUrl')
+        if (u) {
+          var l = document.createElement('link')
+          l.rel = 'preload'
+          l.as = 'image'
+          l.href = u
+          l.crossOrigin = 'anonymous'
+          document.head.appendChild(l)
+        }
+        var o = p.get('orientation')
+        var glb =
+          o === 'landscape'
+            ? '/ar/memory-board-landscape.glb'
+            : '/ar/memory-board-portrait.glb'
+        var g = document.createElement('link')
+        g.rel = 'preload'
+        g.as = 'fetch'
+        g.href = glb
+        g.crossOrigin = 'anonymous'
+        document.head.appendChild(g)
+      })()
+    </script>
+    <script
+      src="/external/xr/xr.js"
+      async
+      crossorigin="anonymous"
+      data-preload-chunks="slam"
+      data-8thwall="xr"
+    ></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/@8thwall/xrextras@1/dist/xrextras.js"
+      crossorigin="anonymous"
+    ></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+        }
+      }
+    </script>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+        font-family: system-ui, -apple-system, sans-serif;
+        color: #eae6e1;
+      }
+      #camerafeed {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        touch-action: none;
+      }
+      .mem-ar-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        background: #000;
+        transition: opacity 0.45s ease, visibility 0.45s ease;
+      }
+      .mem-ar-splash--hidden {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+      }
+      .mem-ar-splash img {
+        width: min(148px, 42vw);
+        height: auto;
+        opacity: 0.96;
+      }
+      .mem-ar-splash__sub {
+        margin: 0;
+        font-size: 13px;
+        letter-spacing: 0.04em;
+        color: rgba(255, 255, 255, 0.42);
+      }
+      .mem-ar-splash__spinner {
+        width: 28px;
+        height: 28px;
+        border: 2px solid rgba(255, 255, 255, 0.16);
+        border-top-color: rgba(232, 197, 71, 0.92);
+        border-radius: 50%;
+        animation: mem-ar-splash-spin 0.7s linear infinite;
+      }
+      @keyframes mem-ar-splash-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .mem-ar-chrome {
+        position: fixed;
+        z-index: 20;
+        pointer-events: none;
+        inset: 0;
+      }
+      .mem-ar-chrome button {
+        pointer-events: auto;
+        font: inherit;
+        cursor: pointer;
+        border-radius: 12px;
+        border: 1px solid rgba(232, 197, 71, 0.35);
+        background: rgba(10, 9, 8, 0.88);
+        color: #eae6e1;
+        padding: 10px 14px;
+        font-weight: 600;
+        font-size: 14px;
+      }
+      .mem-ar-chrome__top {
+        position: absolute;
+        top: max(12px, env(safe-area-inset-top));
+        left: 12px;
+      }
+      .mem-ar-chrome__hint {
+        position: absolute;
+        left: 16px;
+        right: 16px;
+        bottom: max(88px, calc(env(safe-area-inset-bottom) + 68px));
+        max-width: 420px;
+        margin: 0 auto;
+        padding: 12px 14px;
+        border-radius: 14px;
+        background: rgba(8, 7, 6, 0.78);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        font-size: 14px;
+        line-height: 1.45;
+        text-align: center;
+        color: rgba(255, 255, 255, 0.92);
+        transition: opacity 0.25s ease;
+      }
+      .mem-ar-chrome__hint--hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+      .mem-ar-meta {
+        position: absolute;
+        left: 12px;
+        right: 12px;
+        bottom: max(14px, env(safe-area-inset-bottom));
+        max-width: 440px;
+        margin: 0 auto;
+        padding: 12px 14px;
+        border-radius: 14px;
+        text-align: left;
+        pointer-events: none;
+        background: rgba(8, 7, 6, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+      }
+      .mem-ar-meta__title {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        color: rgba(255, 255, 255, 0.94);
+      }
+      .mem-ar-meta__creator {
+        margin: 4px 0 0;
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.58);
+      }
+      .mem-ar-meta__future {
+        margin: 6px 0 0;
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.34);
+      }
+      .mem-ar-chrome__error {
+        position: absolute;
+        left: 16px;
+        right: 16px;
+        bottom: max(20px, env(safe-area-inset-bottom));
+        max-width: 420px;
+        margin: 0 auto;
+        padding: 14px;
+        border-radius: 14px;
+        background: rgba(80, 28, 28, 0.55);
+        border: 1px solid rgba(240, 160, 160, 0.22);
+        color: #ffd4d4;
+        font-size: 14px;
+        line-height: 1.45;
+        text-align: center;
+      }
+      .mem-ar-chrome__hidden {
+        display: none !important;
+      }
+      .mem-ar-tap-gate {
+        position: fixed;
+        inset: 0;
+        z-index: 30;
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+        padding: max(24px, env(safe-area-inset-bottom)) 20px;
+        background: rgba(6, 5, 4, 0.55);
+        pointer-events: auto;
+      }
+      .mem-ar-tap-gate__panel {
+        width: 100%;
+        max-width: 420px;
+        padding: 16px;
+        border-radius: 14px;
+        background: rgba(8, 7, 6, 0.92);
+        border: 1px solid rgba(232, 197, 71, 0.35);
+        text-align: center;
+        font-size: 15px;
+        line-height: 1.45;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="splash" class="mem-ar-splash" aria-hidden="false">
+      <img src="/illust-logo-white.png" alt="illust." width="148" height="40" decoding="async" />
+      <div class="mem-ar-splash__spinner" aria-hidden="true"></div>
+      <p id="splash-sub" class="mem-ar-splash__sub">Loading memory…</p>
+    </div>
+
+    <canvas id="camerafeed"></canvas>
+
+    <div class="mem-ar-chrome" aria-live="polite">
+      <div class="mem-ar-chrome__top">
+        <button type="button" id="back-btn" aria-label="Back to map">← Map</button>
+      </div>
+      <p id="hint-line" class="mem-ar-chrome__hint mem-ar-chrome__hint--hidden">
+        Move your phone slowly to find a surface
+      </p>
+      <div id="meta-block" class="mem-ar-meta">
+        <p id="meta-title" class="mem-ar-meta__title"></p>
+        <p id="meta-creator" class="mem-ar-meta__creator"></p>
+        <p class="mem-ar-meta__future">Follow creator — coming soon</p>
+      </div>
+      <p id="error-line" class="mem-ar-chrome__error mem-ar-chrome__hidden" role="alert"></p>
+    </div>
+
+    <div id="tap-gate" class="mem-ar-tap-gate mem-ar-chrome__hidden" role="button" tabindex="0">
+      <div class="mem-ar-tap-gate__panel">Tap to start the camera</div>
+    </div>
+
+    <script type="module">
+      import * as THREE from 'three'
+      import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+
+      window.THREE = THREE
+
+      const params = new URLSearchParams(window.location.search)
+      const imageUrl = params.get('imageUrl') || ''
+      const title = params.get('title') || 'Memory'
+      const creator = params.get('creator') || ''
+      const orientationParam = params.get('orientation')
+      const orientation =
+        orientationParam === 'landscape' || orientationParam === 'portrait'
+          ? orientationParam
+          : 'portrait'
+      const aspectParam = Number(params.get('aspect'))
+      const imageAspect =
+        Number.isFinite(aspectParam) && aspectParam > 0 ? aspectParam : orientation === 'landscape' ? 16 / 9 : 9 / 16
+      const frameHue = Number(params.get('frameHue'))
+      const frameColorParam = params.get('frameColor') || ''
+      const frameColorHex = /^#[0-9a-fA-F]{6}$/.test(frameColorParam) ? frameColorParam : null
+      const memoryLat = Number(params.get('lat'))
+      const memoryLng = Number(params.get('lng'))
+      const geoVerified = params.get('geoVerified') === '1'
+      const sensorsReady = params.get('sensorsReady') === '1'
+
+      const BOARD_GLB = {
+        portrait: '/ar/memory-board-portrait.glb',
+        landscape: '/ar/memory-board-landscape.glb',
+      }
+
+      const BOARD_TEMPLATE = {
+        portrait: { w: 0.54, h: 0.96 },
+        landscape: { w: 0.96, h: 0.54 },
+      }
+
+      /** World origin anchor — board stands on floor (Y=0) facing the viewer. */
+      const PLACEMENT_DISTANCE = 2.45
+      const MAX_BOARD_EDGE_M = 1.48
+      const DEPTH_SCALE = 2.35
+      const BOB_AMPLITUDE = 0.068
+
+      const canvas = document.getElementById('camerafeed')
+      const hintLine = document.getElementById('hint-line')
+      const errorLine = document.getElementById('error-line')
+      const backBtn = document.getElementById('back-btn')
+      const tapGate = document.getElementById('tap-gate')
+      const splash = document.getElementById('splash')
+      const splashSub = document.getElementById('splash-sub')
+      const metaTitle = document.getElementById('meta-title')
+      const metaCreator = document.getElementById('meta-creator')
+
+      document.title = 'Memoria — ' + title
+      metaTitle.textContent = title
+      metaCreator.textContent = creator ? 'by ' + creator : ''
+
+      const hideSplash = () => {
+        splash.classList.add('mem-ar-splash--hidden')
+        splash.setAttribute('aria-hidden', 'true')
+      }
+
+      const showError = (msg) => {
+        hideSplash()
+        errorLine.textContent = msg
+        errorLine.classList.remove('mem-ar-chrome__hidden')
+        hintLine.classList.add('mem-ar-chrome__hint--hidden')
+      }
+
+      const setHint = (msg, visible = true) => {
+        hintLine.textContent = msg
+        hintLine.classList.toggle('mem-ar-chrome__hint--hidden', !visible)
+      }
+
+      if (!imageUrl) {
+        showError('No memory image. Open this view from a map pin.')
+      }
+
+      backBtn.addEventListener('click', () => {
+        try {
+          window.XR8?.stop?.()
+        } catch {
+          /* ignore */
+        }
+        if (window.history.length > 1) window.history.back()
+        else window.location.href = '/map'
+      })
+
+      const createCanvasNormalMap = (size = 256) => {
+        const c = document.createElement('canvas')
+        c.width = size
+        c.height = size
+        const ctx = c.getContext('2d')
+        const imgData = ctx.createImageData(size, size)
+        const d = imgData.data
+        for (let y = 0; y < size; y++) {
+          for (let x = 0; x < size; x++) {
+            const weave =
+              Math.sin(x * 0.36 + y * 0.08) * Math.sin(y * 0.34 + x * 0.05) * 0.07
+            const grain = (((x * 17 + y * 31) % 7) / 7) * 0.025 - 0.012
+            const nx = weave + grain * 0.6
+            const ny = grain - weave * 0.4
+            const nz = Math.sqrt(Math.max(0.05, 1 - nx * nx - ny * ny))
+            const i = (y * size + x) * 4
+            d[i] = Math.floor((nx * 0.5 + 0.5) * 255)
+            d[i + 1] = Math.floor((ny * 0.5 + 0.5) * 255)
+            d[i + 2] = Math.floor((nz * 0.5 + 0.5) * 255)
+            d[i + 3] = 255
+          }
+        }
+        ctx.putImageData(imgData, 0, 0)
+        const tex = new THREE.CanvasTexture(c)
+        tex.wrapS = THREE.RepeatWrapping
+        tex.wrapT = THREE.RepeatWrapping
+        tex.repeat.set(5, 5)
+        return tex
+      }
+
+      const canvasNormal = createCanvasNormalMap()
+
+      const setSplashStatus = (msg) => {
+        if (splashSub) splashSub.textContent = msg
+      }
+
+      const dressPhotoMaterial = (mat, tex) => {
+        mat.color.setRGB(1, 1, 1)
+        mat.map = tex
+        mat.emissiveMap = tex
+        mat.emissive = new THREE.Color(0xffffff)
+        mat.emissiveIntensity = 0.42
+        mat.normalMap = canvasNormal
+        mat.normalScale = new THREE.Vector2(0.14, 0.14)
+        mat.roughness = 0.62
+        mat.metalness = 0
+        mat.needsUpdate = true
+      }
+
+      const applyFrameColor = (root, { hex, hue }) => {
+        const color = hex ? new THREE.Color(hex) : new THREE.Color(`hsl(${hue}, 58%, 44%)`)
+        root.traverse((child) => {
+          if (!child.isMesh) return
+          const mats = Array.isArray(child.material) ? child.material : [child.material]
+          mats.forEach((mat) => {
+            if (mat?.name !== 'Frame') return
+            mat.color.copy(color)
+            mat.needsUpdate = true
+          })
+        })
+      }
+
+      const applyPhotoTexture = (root, tex) => {
+        root.traverse((child) => {
+          if (!child.isMesh) return
+          const mats = Array.isArray(child.material) ? child.material : [child.material]
+          mats.forEach((mat) => {
+            if (mat?.name === 'Photo') dressPhotoMaterial(mat, tex)
+          })
+        })
+      }
+
+      const enableBoardShadows = (root) => {
+        root.traverse((child) => {
+          if (!child.isMesh) return
+          child.castShadow = true
+          child.receiveShadow = true
+        })
+      }
+
+      let boardMetrics = { width: 0.54, height: 0.96 }
+
+      const fitBoardToAspect = (root, orient, aspect) => {
+        const template = BOARD_TEMPLATE[orient] || BOARD_TEMPLATE.portrait
+        let targetW
+        let targetH
+        if (aspect >= 1) {
+          targetW = MAX_BOARD_EDGE_M
+          targetH = MAX_BOARD_EDGE_M / aspect
+        } else {
+          targetH = MAX_BOARD_EDGE_M
+          targetW = MAX_BOARD_EDGE_M * aspect
+        }
+        root.scale.set(
+          targetW / template.w,
+          targetH / template.h,
+          DEPTH_SCALE
+        )
+        boardMetrics = { width: targetW, height: targetH }
+      }
+
+      const loadMemoryTexture = (url) =>
+        new Promise((resolve, reject) => {
+          const tryLoad = (src, isRetry) => {
+            const loader = new THREE.TextureLoader()
+            if (!src.startsWith('blob:') && !src.startsWith('data:')) {
+              loader.setCrossOrigin('anonymous')
+            }
+            loader.load(
+              src,
+              (tex) => {
+                tex.colorSpace = THREE.SRGBColorSpace
+                tex.anisotropy = 8
+                resolve(tex)
+              },
+              undefined,
+              () => {
+                if (!isRetry && !src.includes('/api/media/proxy')) {
+                  try {
+                    const proxied = `/api/media/proxy?target=${encodeURIComponent(src)}`
+                    tryLoad(proxied, true)
+                    return
+                  } catch {
+                    /* fall through */
+                  }
+                }
+                reject(new Error('Could not load the memory image.'))
+              }
+            )
+          }
+          tryLoad(url, false)
+        })
+
+      const texturePromise = imageUrl ? loadMemoryTexture(imageUrl) : null
+
+      const boardPromise = new Promise((resolve, reject) => {
+        const loader = new GLTFLoader()
+        loader.load(
+          BOARD_GLB[orientation] || BOARD_GLB.portrait,
+          (gltf) => resolve(gltf),
+          undefined,
+          () => reject(new Error('Could not load the memory board model.'))
+        )
+      })
+
+      const assetsPromise =
+        texturePromise && boardPromise
+          ? Promise.all([texturePromise, boardPromise])
+          : null
+
+      const requestMotionIfNeeded = async () => {
+        const dor = window.DeviceOrientationEvent
+        const dm = window.DeviceMotionEvent
+        const prompts = []
+        if (dor?.requestPermission) {
+          prompts.push(() => dor.requestPermission.call(dor))
+        }
+        if (dm?.requestPermission) {
+          prompts.push(() => dm.requestPermission.call(dm))
+        }
+        if (!prompts.length) return true
+        for (const prompt of prompts) {
+          try {
+            const res = await prompt()
+            if (res !== 'granted') return false
+          } catch {
+            return false
+          }
+        }
+        return true
+      }
+
+      const isPermissionError = (e) => {
+        const msg = (e instanceof Error ? e.message : String(e)).toLowerCase()
+        return (
+          msg.includes('permission') ||
+          msg.includes('notallowed') ||
+          msg.includes('denied') ||
+          msg.includes('gesture')
+        )
+      }
+
+      let xrRunning = false
+      let memoryAnchor = null
+      let tiltGroup = null
+      let phase = 'LOADING'
+      let placedAtMs = 0
+
+      const drag = { yaw: 0, pitch: 0, active: false, moved: false, lastX: 0, lastY: 0 }
+      const MAX_YAW = 0.85
+      const MAX_PITCH = 0.55
+      const DRAG_SENS = 0.0042
+      const TAP_MOVE_PX = 10
+
+      const placeAtOrigin = (camera) => {
+        if (!memoryAnchor) return
+        memoryAnchor.position.set(0, boardMetrics.height / 2, -PLACEMENT_DISTANCE)
+        const dx = camera.position.x - memoryAnchor.position.x
+        const dz = camera.position.z - memoryAnchor.position.z
+        memoryAnchor.rotation.set(0, Math.atan2(dx, dz), 0)
+        memoryAnchor.visible = true
+        phase = 'PLACED'
+        placedAtMs = Date.now()
+        setHint('Drag to rotate · tap to recenter', true)
+        window.setTimeout(() => setHint('', false), 4000)
+      }
+
+      const verifyArRange = () =>
+        new Promise((resolve) => {
+          if (geoVerified) {
+            resolve(true)
+            return
+          }
+          if (!Number.isFinite(memoryLat) || !Number.isFinite(memoryLng)) {
+            resolve(true)
+            return
+          }
+          if (!navigator.geolocation) {
+            showError('Location is required to view this memory in AR.')
+            resolve(false)
+            return
+          }
+          navigator.geolocation.getCurrentPosition(
+            async (p) => {
+              try {
+                const u = new URL('/api/ar/can-view', window.location.origin)
+                u.searchParams.set('lat', String(memoryLat))
+                u.searchParams.set('lng', String(memoryLng))
+                u.searchParams.set('userLat', String(p.coords.latitude))
+                u.searchParams.set('userLng', String(p.coords.longitude))
+                const token = localStorage.getItem('memoria:adminToken')
+                const headers = token ? { Authorization: `Bearer ${token}` } : {}
+                const res = await fetch(u.toString(), { headers })
+                const j = await res.json()
+                if (j.allowed) {
+                  resolve(true)
+                  return
+                }
+                const dist = Math.round(j.distanceM ?? 0)
+                const radius = Math.round(j.radiusM ?? 80)
+                showError(`Move closer to this memory (${dist}m away · within ${radius}m).`)
+                resolve(false)
+              } catch {
+                showError('Could not verify AR range.')
+                resolve(false)
+              }
+            },
+            () => {
+              showError('Location is required to view this memory in AR.')
+              resolve(false)
+            },
+            { enableHighAccuracy: true, timeout: 12_000, maximumAge: 10_000 }
+          )
+        })
+
+      const bindTouchGestures = () => {
+        const onStart = (e) => {
+          if (phase !== 'PLACED' || e.touches.length !== 1) return
+          drag.active = true
+          drag.moved = false
+          drag.lastX = e.touches[0].clientX
+          drag.lastY = e.touches[0].clientY
+        }
+
+        const onMove = (e) => {
+          if (!drag.active || e.touches.length !== 1) return
+          const x = e.touches[0].clientX
+          const y = e.touches[0].clientY
+          const dx = x - drag.lastX
+          const dy = y - drag.lastY
+          if (!drag.moved && Math.hypot(dx, dy) < TAP_MOVE_PX) return
+          drag.moved = true
+          drag.lastX = x
+          drag.lastY = y
+          drag.yaw = Math.max(-MAX_YAW, Math.min(MAX_YAW, drag.yaw + dx * DRAG_SENS))
+          drag.pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, drag.pitch - dy * DRAG_SENS))
+          e.preventDefault()
+        }
+
+        const onEnd = () => {
+          if (drag.active && !drag.moved && phase === 'PLACED') {
+            try {
+              window.XR8.XrController.recenter()
+              const { camera } = window.XR8.Threejs.xrScene()
+              placeAtOrigin(camera)
+            } catch {
+              /* ignore */
+            }
+          }
+          drag.active = false
+        }
+
+        canvas.addEventListener('touchstart', onStart, { passive: true })
+        canvas.addEventListener('touchmove', onMove, { passive: false })
+        canvas.addEventListener('touchend', onEnd)
+        canvas.addEventListener('touchcancel', onEnd)
+      }
+
+      const memorySceneModule = () => ({
+        name: 'memoria-world-memory',
+        onStart: () => {
+          const xrScene = window.XR8.Threejs.xrScene()
+          const { scene, renderer } = xrScene
+
+          renderer.shadowMap.enabled = true
+          renderer.shadowMap.type = THREE.PCFSoftShadowMap
+          scene.background = null
+          renderer.autoClear = false
+          renderer.setClearColor(0x000000, 0)
+
+          const ambient = new THREE.AmbientLight(0xffffff, 0.55)
+          scene.add(ambient)
+
+          const hemi = new THREE.HemisphereLight(0xfff8ee, 0x3a3530, 0.85)
+          scene.add(hemi)
+
+          const sun = new THREE.DirectionalLight(0xffffff, 1.45)
+          sun.position.set(1.2, 4.5, 2.2)
+          sun.castShadow = true
+          sun.shadow.mapSize.set(1024, 1024)
+          sun.shadow.bias = -0.00035
+          sun.shadow.normalBias = 0.02
+          sun.shadow.camera.near = 0.2
+          sun.shadow.camera.far = 14
+          sun.shadow.camera.left = -3.5
+          sun.shadow.camera.right = 3.5
+          sun.shadow.camera.top = 3.5
+          sun.shadow.camera.bottom = -3.5
+          scene.add(sun)
+
+          const fill = new THREE.DirectionalLight(0xfff4e8, 0.48)
+          fill.position.set(-2.5, 2, 2.5)
+          scene.add(fill)
+
+          const rim = new THREE.DirectionalLight(0xdde8ff, 0.28)
+          rim.position.set(0, 1.5, -3)
+          scene.add(rim)
+
+          const ground = new THREE.Mesh(
+            new THREE.PlaneGeometry(12, 12),
+            new THREE.ShadowMaterial({ opacity: 0.38, color: 0x000000 })
+          )
+          ground.rotation.x = -Math.PI / 2
+          ground.position.y = 0
+          ground.receiveShadow = true
+          scene.add(ground)
+
+          memoryAnchor = new THREE.Group()
+          memoryAnchor.visible = false
+          scene.add(memoryAnchor)
+
+          tiltGroup = new THREE.Group()
+          tiltGroup.rotation.order = 'YXZ'
+          memoryAnchor.add(tiltGroup)
+
+          void (async () => {
+            try {
+              setHint('Loading memory…', true)
+              const [tex, gltf] = await assetsPromise
+              fitBoardToAspect(gltf.scene, orientation, imageAspect)
+              applyFrameColor(gltf.scene, {
+                hex: frameColorHex,
+                hue: Number.isFinite(frameHue) ? frameHue : 220,
+              })
+              applyPhotoTexture(gltf.scene, tex)
+              enableBoardShadows(gltf.scene)
+              tiltGroup.add(gltf.scene)
+              const { camera } = window.XR8.Threejs.xrScene()
+              placeAtOrigin(camera)
+              setHint('', false)
+            } catch (e) {
+              showError(e instanceof Error ? e.message : 'Could not load the memory.')
+            }
+          })()
+
+          bindTouchGestures()
+        },
+        onUpdate: () => {
+          if (!memoryAnchor || phase !== 'PLACED' || !tiltGroup) return
+
+          const t = (Date.now() - placedAtMs) / 1000
+          const bob = Math.sin(t * Math.PI * 2 * 0.38) * BOB_AMPLITUDE
+          const sway = Math.sin(t * Math.PI * 2 * 0.21) * 0.012
+          tiltGroup.position.y = bob
+          tiltGroup.rotation.order = 'YXZ'
+          tiltGroup.rotation.y = drag.yaw
+          tiltGroup.rotation.x = drag.pitch
+          tiltGroup.rotation.z = sway
+        },
+      })
+
+      const showTapGate = () => {
+        hideSplash()
+        tapGate.classList.remove('mem-ar-chrome__hidden')
+        const onTap = () => {
+          tapGate.classList.add('mem-ar-chrome__hidden')
+          void startXr()
+        }
+        tapGate.addEventListener('click', onTap, { once: true })
+        tapGate.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onTap()
+          }
+        })
+      }
+
+      const startXr = async () => {
+        if (xrRunning) return
+        if (!imageUrl) return
+
+        if (!sensorsReady) {
+          const motionOk = await requestMotionIfNeeded()
+          if (!motionOk) {
+            setHint('Allow motion access when prompted, then tap to start AR.', true)
+            showTapGate()
+            return
+          }
+        }
+
+        const inRange = await verifyArRange()
+        if (!inRange) return
+
+        try {
+          const x = window.XR8
+          if (!x?.run) throw new Error('8th Wall engine not ready.')
+
+          if (x.loadChunk) {
+            try {
+              await x.loadChunk('slam')
+            } catch {
+              /* ignore */
+            }
+          }
+
+          if (x.XrController?.configure) {
+            try {
+              x.XrController.configure({ disableWorldTracking: false, enableVps: false, scale: 1 })
+            } catch {
+              /* ignore */
+            }
+          }
+
+          if (x.clearCameraPipelineModules) {
+            try {
+              x.clearCameraPipelineModules()
+            } catch {
+              /* ignore */
+            }
+          }
+
+          x.addCameraPipelineModules([
+            x.GlTextureRenderer.pipelineModule(),
+            x.Threejs.pipelineModule(),
+            x.XrController.pipelineModule(),
+            window.XRExtras.FullWindowCanvas.pipelineModule(),
+            window.XRExtras.RuntimeError.pipelineModule(),
+            memorySceneModule(),
+          ])
+
+          x.run({ canvas })
+          xrRunning = true
+        } catch (e) {
+          if (isPermissionError(e)) {
+            showTapGate()
+            return
+          }
+          showError(e instanceof Error ? e.message : 'Failed to start AR.')
+        }
+      }
+
+      const needsTapToStart = () => {
+        const ua = navigator.userAgent || ''
+        if (/iPhone|iPad|iPod/i.test(ua)) return true
+        const dm = window.DeviceMotionEvent
+        return Boolean(dm?.requestPermission)
+      }
+
+      const onEngineReady = () => {
+        if (!imageUrl) return
+        if (sensorsReady && !needsTapToStart()) {
+          void startXr()
+          return
+        }
+        if (needsTapToStart()) {
+          showTapGate()
+          return
+        }
+        void startXr()
+      }
+
+      if (window.XR8) onEngineReady()
+      else window.addEventListener('xrloaded', onEngineReady, { once: true })
+
+      window.addEventListener('error', (e) => {
+        const msg = e.message || ''
+        if (msg) showError('AR failed to start: ' + msg)
+      })
+      window.addEventListener('unhandledrejection', (e) => {
+        const reason = e.reason instanceof Error ? e.reason.message : String(e.reason || '')
+        if (reason) showError('AR failed to start: ' + reason)
+      })
+    </script>
+  </body>
+</html>

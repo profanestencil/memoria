@@ -1,5 +1,5 @@
 type RequestResult =
-  | { ok: true }
+  | { ok: true; userGeo?: import('@/lib/arGeofence').UserGeo }
   | { ok: false; reason: 'unsupported' | 'denied' | 'unknown'; message: string }
 
 const isProbablyIos = () => {
@@ -10,27 +10,70 @@ const isProbablyIos = () => {
 
 const requestMotionPermissionIfNeeded = async (): Promise<RequestResult> => {
   try {
-    const AnyDeviceMotionEvent = DeviceMotionEvent as unknown as {
-      requestPermission?: () => Promise<'granted' | 'denied'>
-    }
-    const AnyDeviceOrientationEvent = DeviceOrientationEvent as unknown as {
-      requestPermission?: () => Promise<'granted' | 'denied'>
+    const orientationReq = (
+      DeviceOrientationEvent as unknown as {
+        requestPermission?: () => Promise<'granted' | 'denied'>
+      }
+    ).requestPermission
+    const motionReq = (
+      DeviceMotionEvent as unknown as {
+        requestPermission?: () => Promise<'granted' | 'denied'>
+      }
+    ).requestPermission
+
+    if (!orientationReq && !motionReq) return { ok: true }
+
+    if (orientationReq) {
+      const result = await orientationReq.call(DeviceOrientationEvent)
+      if (result !== 'granted') {
+        return { ok: false, reason: 'denied', message: 'Motion permission was denied.' }
+      }
     }
 
-    const request =
-      AnyDeviceMotionEvent?.requestPermission ??
-      AnyDeviceOrientationEvent?.requestPermission ??
-      null
-
-    if (!request) return { ok: true }
-
-    const result = await request()
-    if (result !== 'granted') {
-      return { ok: false, reason: 'denied', message: 'Motion permission was denied.' }
+    if (motionReq) {
+      const result = await motionReq.call(DeviceMotionEvent)
+      if (result !== 'granted') {
+        return { ok: false, reason: 'denied', message: 'Motion permission was denied.' }
+      }
     }
+
     return { ok: true }
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Failed to request motion permission.'
+    return { ok: false, reason: 'unknown', message: msg }
+  }
+}
+
+const requestLocationPermission = async (): Promise<RequestResult> => {
+  if (!navigator.geolocation) {
+    return { ok: true }
+  }
+
+  try {
+    const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: true,
+        timeout: 8_000,
+        maximumAge: 30_000,
+      })
+    })
+    return {
+      ok: true,
+      userGeo: {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+      },
+    }
+  } catch (e) {
+    const geoErr = e as GeolocationPositionError
+    if (geoErr?.code === geoErr.PERMISSION_DENIED) {
+      return {
+        ok: false,
+        reason: 'denied',
+        message: 'Location permission is required for AR. Enable location and try again.',
+      }
+    }
+    const msg = e instanceof Error ? e.message : 'Unable to read your location.'
     return { ok: false, reason: 'unknown', message: msg }
   }
 }
@@ -54,21 +97,21 @@ const requestCameraPermission = async (): Promise<RequestResult> => {
 }
 
 /**
- * Ask for permissions up-front (from a user gesture) to improve AR startup reliability.
- * - Camera: via getUserMedia preflight
- * - Motion/orientation: iOS prompt if required
+ * Ask for permissions from the View in AR tap — motion must be first await (iOS gesture).
+ * Order: motion/orientation → camera → location (feeds geofence).
  */
 export const requestArPermissions = async (): Promise<RequestResult> => {
-  // iOS is the platform most likely to require explicit motion prompts.
-  if (isProbablyIos()) {
-    const motion = await requestMotionPermissionIfNeeded()
-    if (!motion.ok) return motion
-  } else {
-    // Non-iOS can still have motion prompts in embedded browsers, but most do not.
-    const motion = await requestMotionPermissionIfNeeded()
-    if (!motion.ok && motion.reason === 'denied') return motion
+  const motion = await requestMotionPermissionIfNeeded()
+  if (!motion.ok) {
+    if (isProbablyIos() || motion.reason === 'denied') return motion
   }
 
-  return await requestCameraPermission()
+  const camera = await requestCameraPermission()
+  if (!camera.ok) return camera
+
+  const location = await requestLocationPermission()
+  if (!location.ok) return location
+
+  return { ok: true, userGeo: location.userGeo }
 }
 

@@ -14,13 +14,13 @@ type Props = {
 }
 
 /**
- * Permissions Policy tokens delegated to the third-party AR scene.
- * Without these, the browser blocks camera, motion sensors, and geo *inside* the iframe
- * even if the embedded page calls getUserMedia / DeviceOrientation / geolocation.
+ * Permissions Policy tokens delegated to the cross-origin AR scene.
+ * Use explicit `*` allowlists so embedded origins (not only same-origin) receive camera,
+ * sensors, and WebXR — without this, many hosts load a blank white canvas until permissions fail silently.
  * @see https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Permissions-Policy
  */
 const AR_SCENE_IFRAME_ALLOW =
-  'accelerometer; autoplay; camera; fullscreen; geolocation; gyroscope; magnetometer; microphone; screen-wake-lock; xr-spatial-tracking'
+  'accelerometer *; autoplay *; camera *; display-capture *; fullscreen *; geolocation *; gyroscope *; magnetometer *; microphone *; screen-wake-lock *; xr-spatial-tracking *'
 
 export const ArIframeScene = ({ iframeUrl, latitude, longitude, geoRadiusM = 50, sceneName }: Props) => {
   const navigate = useNavigate()
@@ -35,6 +35,21 @@ export const ArIframeScene = ({ iframeUrl, latitude, longitude, geoRadiusM = 50,
     message: string | null
     fade: boolean
   }>({ phase: 'idle', message: null, fade: false })
+  const [iframeLoaded, setIframeLoaded] = useState(false)
+
+  const radiusM = useMemo(() => {
+    const n = Number(geoRadiusM)
+    return Number.isFinite(n) && n > 0 ? n : 50
+  }, [geoRadiusM])
+
+  useEffect(() => {
+    document.documentElement.classList.add('mem-ar-iframe-shell')
+    return () => document.documentElement.classList.remove('mem-ar-iframe-shell')
+  }, [])
+
+  useEffect(() => {
+    setIframeLoaded(false)
+  }, [iframeUrl])
 
   const allowedOrigins = useMemo(() => {
     const raw = (import.meta.env.VITE_AR_CLAIM_ORIGINS ?? '').toString().trim()
@@ -92,7 +107,7 @@ export const ArIframeScene = ({ iframeUrl, latitude, longitude, geoRadiusM = 50,
       (p) => {
         const d = distanceMeters(p.coords.latitude, p.coords.longitude, latitude, longitude)
         setDist(d)
-        setAllowed(d <= geoRadiusM)
+        setAllowed(d <= radiusM)
         setGeoError(null)
       },
       (e) => {
@@ -102,7 +117,7 @@ export const ArIframeScene = ({ iframeUrl, latitude, longitude, geoRadiusM = 50,
       { enableHighAccuracy: true, maximumAge: 2000 }
     )
     return () => navigator.geolocation.clearWatch(watchId)
-  }, [latitude, longitude, geoRadiusM])
+  }, [latitude, longitude, radiusM])
 
   useEffect(() => {
     const onMsg = (event: MessageEvent) => {
@@ -120,9 +135,26 @@ export const ArIframeScene = ({ iframeUrl, latitude, longitude, geoRadiusM = 50,
     return () => window.removeEventListener('message', onMsg)
   }, [allowed, originAllowed, handleRunClaim, loot.phase])
 
+  const handleOpenInNewTab = useCallback(() => {
+    try {
+      window.open(iframeUrl, '_blank', 'noopener,noreferrer')
+    } catch {
+      // ignore
+    }
+  }, [iframeUrl])
+
   return (
-    <div style={{ position: 'fixed', inset: 0, background: '#080706', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 12, flexShrink: 0 }}>
+    <div style={{ position: 'fixed', inset: 0, background: '#050504', display: 'flex', flexDirection: 'column', zIndex: 1 }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          padding: 12,
+          flexShrink: 0,
+          flexWrap: 'wrap',
+        }}
+      >
         <button
           type="button"
           className="mem-btn mem-btn--ghost"
@@ -132,9 +164,18 @@ export const ArIframeScene = ({ iframeUrl, latitude, longitude, geoRadiusM = 50,
         >
           Back to map
         </button>
+        <button
+          type="button"
+          className="mem-btn mem-btn--secondary"
+          onClick={handleOpenInNewTab}
+          aria-label="Open AR scene in a new tab"
+          style={{ background: 'rgba(12, 55, 68, 0.35)', borderColor: 'rgba(34, 211, 238, 0.28)' }}
+        >
+          Open in new tab
+        </button>
         {dist != null ? (
           <span style={{ color: 'rgba(255,248,235,0.75)', fontSize: 13 }}>
-            {Math.round(dist)}m · {allowed ? 'unlocked' : `within ${geoRadiusM}m`}
+            {Math.round(dist)}m · {allowed ? 'unlocked' : `within ${radiusM}m`}
           </span>
         ) : null}
       </div>
@@ -156,19 +197,52 @@ export const ArIframeScene = ({ iframeUrl, latitude, longitude, geoRadiusM = 50,
         >
           <p style={{ margin: 0, maxWidth: 360 }}>
             Move closer to unlock this scene.
-            {dist != null ? ` You are about ${Math.round(dist)}m away (limit ${geoRadiusM}m).` : null}
+            {dist != null ? ` You are about ${Math.round(dist)}m away (limit ${radiusM}m).` : null}
           </p>
         </div>
       ) : null}
       {allowed ? (
-        <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
+        <div style={{ position: 'relative', flex: 1, minHeight: 0, background: '#020203' }}>
+          {!iframeLoaded ? (
+            <div
+              role="status"
+              aria-live="polite"
+              style={{
+                position: 'absolute',
+                inset: 0,
+                zIndex: 1,
+                display: 'grid',
+                placeItems: 'center',
+                padding: 24,
+                background: 'linear-gradient(180deg, rgba(6,8,12,0.92), rgba(4,3,2,0.96))',
+                color: 'rgba(255,248,235,0.88)',
+                fontSize: 14,
+                textAlign: 'center',
+                lineHeight: 1.5,
+                pointerEvents: 'none',
+              }}
+            >
+              <p style={{ margin: 0, maxWidth: 340 }}>
+                Loading AR scene… If you only see a white screen, the host may need camera access — tap inside the
+                frame and allow the prompt, or use <strong>Open in new tab</strong> above.
+              </p>
+            </div>
+          ) : null}
           <iframe
             title={sceneName ?? 'AR scene'}
             src={iframeUrl}
-            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 0 }}
+            style={{
+              position: 'absolute',
+              inset: 0,
+              width: '100%',
+              height: '100%',
+              border: 0,
+              backgroundColor: '#000',
+            }}
             allow={AR_SCENE_IFRAME_ALLOW}
             allowFullScreen
-            referrerPolicy="no-referrer-when-downgrade"
+            referrerPolicy="strict-origin-when-cross-origin"
+            onLoad={() => setIframeLoaded(true)}
           />
           {loot.phase !== 'idle' ? (
             <div

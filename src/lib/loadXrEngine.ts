@@ -16,8 +16,26 @@ const waitForXR8 = async (timeoutMs: number) => {
 }
 
 /**
+ * Optional: sample apps use `xrloaded` when the engine + SLAM chunk are ready to register pipelines.
+ * If the event never fires (older builds), we still proceed after XR8 appears.
+ */
+const waitForXrLoadedEvent = async (timeoutMs: number) => {
+  await new Promise<void>((resolve) => {
+    let settled = false
+    const done = () => {
+      if (settled) return
+      settled = true
+      resolve()
+    }
+    window.addEventListener('xrloaded', done, { once: true })
+    window.setTimeout(done, timeoutMs)
+  })
+}
+
+/**
  * Loads the self-hosted 8th Wall Engine Binary (served from our domain) and resolves when `globalThis.XR8` exists.
- * Uses a cached promise so the script is injected at most once.
+ * If `index.html` already injected `script[data-8thwall="xr"]`, we only wait for XR8 (no duplicate script).
+ * XRExtras is loaded via a separate script tag (see `index.html`).
  */
 export const loadXrEngine = async (): Promise<XR8Global> => {
   if (getXR8()) return getXR8()!
@@ -26,9 +44,14 @@ export const loadXrEngine = async (): Promise<XR8Global> => {
   loadPromise = (async () => {
     const src = '/external/xr/xr.js'
 
-    const existing = document.querySelector<HTMLScriptElement>('script[data-8thwall="xr"]')
+    const existing =
+      document.querySelector<HTMLScriptElement>('script[data-8thwall="xr"]') ??
+      document.querySelector<HTMLScriptElement>(`script[src="${src}"]`)
+
     if (existing) {
-      return waitForXR8(12_000)
+      const xr = await waitForXR8(15_000)
+      await waitForXrLoadedEvent(3_000)
+      return xr
     }
 
     const s = document.createElement('script')
@@ -47,7 +70,9 @@ export const loadXrEngine = async (): Promise<XR8Global> => {
 
     document.head.appendChild(s)
     await loaded
-    return waitForXR8(12_000)
+    const xr = await waitForXR8(15_000)
+    await waitForXrLoadedEvent(3_000)
+    return xr
   })()
 
   return loadPromise

@@ -1,7 +1,20 @@
 import { useCallback, useEffect, useState, useMemo, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { MemoryPin } from '@/lib/memoryPin'
-import { pinAudioPlaybackUrl, pinIsAudioMemory, pinIsDraftMemory } from '@/lib/memoryMedia'
+import {
+  pinAudioPlaybackUrl,
+  pinImageArUrl,
+  pinIsAudioMemory,
+  pinIsDraftMemory,
+} from '@/lib/memoryMedia'
+import {
+  buildArMemoryPageUrl,
+  detectImageDimensions,
+  prefetchArBoardGlb,
+  prefetchArImage,
+} from '@/lib/arMemoryPageUrl'
+import { checkArViewAllowed } from '@/lib/arGeofence'
+import { frameAccentForPin } from '@/lib/memoryFrameColor'
 import { requestArPermissions } from '@/lib/requestArPermissions'
 import { incrementMemoryView } from '@/lib/tipNudge'
 
@@ -170,17 +183,24 @@ export const MemoryPinPeek = ({
           Event: {pin.campaignTag}
         </p>
       ) : null}
-      <MemoryArEntryActions pin={pin} variant="peek" onBeforeArNavigate={onBeforeArNavigate} />
+      <MemoryArEntryActions
+        pin={pin}
+        myAddress={myAddress}
+        variant="peek"
+        onBeforeArNavigate={onBeforeArNavigate}
+      />
     </div>
   )
 }
 
 const MemoryArEntryActions = ({
   pin,
+  myAddress,
   variant,
   onBeforeArNavigate,
 }: {
   pin: MemoryPin
+  myAddress: string | null
   variant: 'peek' | 'full'
   onBeforeArNavigate?: () => void
 }) => {
@@ -188,18 +208,25 @@ const MemoryArEntryActions = ({
   const [arUi, setArUi] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null })
 
   const playbackUrl = pinAudioPlaybackUrl(pin)
-  const canViewInAr = Boolean(pin.imageUrl) || Boolean(playbackUrl)
+  const imageArUrl = pinImageArUrl(pin)
+  const canViewInAr = Boolean(imageArUrl) || Boolean(playbackUrl)
+
+  useEffect(() => {
+    if (!imageArUrl) return
+    prefetchArImage(imageArUrl)
+    void detectImageDimensions(imageArUrl)
+    prefetchArBoardGlb('portrait')
+    prefetchArBoardGlb('landscape')
+  }, [imageArUrl])
+
+  const creatorLabel =
+    myAddress && pin.creator.toLowerCase() === myAddress.toLowerCase()
+      ? 'You'
+      : shortAddr(pin.creator)
 
   const handleViewInAr = useCallback(async () => {
     if (arUi.busy) return
     if (!canViewInAr) return
-    setArUi({ busy: true, error: null })
-
-    const perm = await requestArPermissions()
-    if (!perm.ok) {
-      setArUi({ busy: false, error: perm.message })
-      return
-    }
 
     const lat = Number(pin.latitude)
     const lng = Number(pin.longitude)
@@ -208,9 +235,23 @@ const MemoryArEntryActions = ({
       return
     }
 
-    onBeforeArNavigate?.()
+    setArUi({ busy: true, error: null })
+
+    // iOS: motion/orientation must be the first await after the tap (before geofence/network).
+    const perm = await requestArPermissions()
+    if (!perm.ok) {
+      setArUi({ busy: false, error: perm.message })
+      return
+    }
+
+    const gate = await checkArViewAllowed(lat, lng, perm.userGeo)
+    if (!gate.ok) {
+      setArUi({ busy: false, error: gate.message })
+      return
+    }
 
     if (pinIsAudioMemory(pin) && playbackUrl) {
+      onBeforeArNavigate?.()
       navigate('/ar', {
         state: {
           audioUrl: playbackUrl,
@@ -219,18 +260,44 @@ const MemoryArEntryActions = ({
           longitude: lng,
         },
       })
-    } else if (pin.imageUrl) {
-      navigate('/ar', {
-        state: {
-          imageUrl: pin.imageUrl,
+      setArUi({ busy: false, error: null })
+      return
+    }
+
+    if (imageArUrl) {
+      prefetchArImage(imageArUrl)
+      prefetchArBoardGlb('portrait')
+      prefetchArBoardGlb('landscape')
+      const dims = await detectImageDimensions(imageArUrl)
+      onBeforeArNavigate?.()
+      window.location.assign(
+        buildArMemoryPageUrl({
+          imageUrl: imageArUrl,
+          title: pin.title || 'Memory',
+          creator: creatorLabel,
           latitude: lat,
           longitude: lng,
-        },
-      })
+          orientation: dims.orientation,
+          aspect: dims.aspect,
+          geoVerified: true,
+          sensorsReady: true,
+          ...frameAccentForPin(pin),
+        })
+      )
+      return
     }
 
     setArUi({ busy: false, error: null })
-  }, [navigate, pin, playbackUrl, canViewInAr, arUi.busy, onBeforeArNavigate])
+  }, [
+    navigate,
+    pin,
+    playbackUrl,
+    imageArUrl,
+    canViewInAr,
+    arUi.busy,
+    onBeforeArNavigate,
+    creatorLabel,
+  ])
 
   const handleViewInArKeyDown = useCallback(
     (e: ReactKeyboardEvent) => {
@@ -264,7 +331,14 @@ const MemoryArEntryActions = ({
         disabled={!canViewInAr || arUi.busy}
         aria-label={canViewInAr ? 'View this memory in AR' : missingLabel}
       >
-        {arUi.busy ? 'Requesting…' : 'View in AR'}
+        {arUi.busy ? (
+          <span className="mem-ar-prepare">
+            <span className="mem-ar-prepare__spinner" aria-hidden="true" />
+            Preparing AR…
+          </span>
+        ) : (
+          'View in AR'
+        )}
       </button>
       {arUi.error ? (
         <p className={errClass} role="status" aria-live="polite">
@@ -350,12 +424,22 @@ export const MemoryPinFull = ({
               <p className="mem-subtle" style={{ margin: '10px 0 0', fontSize: 13 }}>
                 {pin.audioLoop ? 'Set to loop when listeners press play.' : 'Set to play once (no loop).'}
               </p>
-              <MemoryArEntryActions pin={pin} variant="full" onBeforeArNavigate={onBeforeArNavigate} />
+              <MemoryArEntryActions
+                pin={pin}
+                myAddress={myAddress}
+                variant="full"
+                onBeforeArNavigate={onBeforeArNavigate}
+              />
             </div>
           ) : pin.imageUrl ? (
             <>
               <img src={pin.imageUrl} alt="" className="mem-memory-full__img" decoding="async" />
-              <MemoryArEntryActions pin={pin} variant="full" onBeforeArNavigate={onBeforeArNavigate} />
+              <MemoryArEntryActions
+                pin={pin}
+                myAddress={myAddress}
+                variant="full"
+                onBeforeArNavigate={onBeforeArNavigate}
+              />
             </>
           ) : (
             <div className="mem-memory-full__img mem-memory-full__img--placeholder" aria-hidden />

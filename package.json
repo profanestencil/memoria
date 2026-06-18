@@ -4,9 +4,9 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "predev": "node scripts/copy-8thwall-assets.mjs",
-    "postinstall": "node scripts/copy-8thwall-assets.mjs",
-    "prebuild": "node scripts/copy-8thwall-assets.mjs",
+    "predev": "node scripts/copy-8thwall-assets.mjs && node scripts/build-ar-memory-glbs.mjs",
+    "postinstall": "node scripts/copy-8thwall-assets.mjs && node scripts/build-ar-memory-glbs.mjs",
+    "prebuild": "node scripts/copy-8thwall-assets.mjs && node scripts/build-ar-memory-glbs.mjs",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",

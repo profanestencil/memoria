@@ -44,3 +44,10 @@ export const pinAudioPlaybackUrl = (pin: MemoryPin): string | null => {
   if (!raw) return null
   return resolveMediaPlaybackUrl(raw)
 }
+
+/** URL safe for WebGL / Web Audio in AR (same proxy + ipfs rules as audio). */
+export const pinImageArUrl = (pin: MemoryPin): string | null => {
+  const raw = pin.imageUrl?.trim()
+  if (!raw) return null
+  return resolveMediaPlaybackUrl(raw)
+}
