@@ -974,23 +974,33 @@ function ArMemoryXR({ state }: { state: LocationState }) {
 
   const requestMotionPermissions = async (pushDebug?: (line: string) => void) => {
     const w = window as unknown as {
-      DeviceMotionEvent?: { requestPermission?: () => Promise<'granted' | 'denied'> }
-      DeviceOrientationEvent?: { requestPermission?: () => Promise<'granted' | 'denied'> }
-    }
-
-    const tryReq = async (label: string, req?: () => Promise<'granted' | 'denied'>) => {
-      if (!req) return
-      try {
-        const res = await req()
-        pushDebug?.(`${label} permission=${res}`)
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e)
-        pushDebug?.(`${label} permission error: ${msg}`)
+      DeviceMotionEvent?: {
+        requestPermission?: (this: typeof DeviceMotionEvent) => Promise<'granted' | 'denied'>
+      }
+      DeviceOrientationEvent?: {
+        requestPermission?: (this: typeof DeviceOrientationEvent) => Promise<'granted' | 'denied'>
       }
     }
 
-    await tryReq('DeviceMotion', w.DeviceMotionEvent?.requestPermission)
-    await tryReq('DeviceOrientation', w.DeviceOrientationEvent?.requestPermission)
+    const tryReq = async (
+      label: string,
+      ctor: { requestPermission?: () => Promise<'granted' | 'denied'> } | undefined
+    ) => {
+      const req = ctor?.requestPermission
+      if (!req) return
+      try {
+        const res = await req.call(ctor)
+        pushDebug?.(`${label} permission=${res}`)
+        if (res !== 'granted') throw new Error(`${label} permission denied`)
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        pushDebug?.(`${label} permission error: ${msg}`)
+        throw e
+      }
+    }
+
+    await tryReq('DeviceOrientation', w.DeviceOrientationEvent)
+    await tryReq('DeviceMotion', w.DeviceMotionEvent)
   }
 
   const handleTapToStart = async () => {

@@ -258,6 +258,11 @@ const MemoryArEntryActions = ({
         setArUi({ busy: false, error: gate.message })
         return
       }
+      const perm = await requestArPermissions()
+      if (!perm.ok) {
+        setArUi({ busy: false, error: perm.message })
+        return
+      }
       onBeforeArNavigate?.()
       prefetchArImage(imageArUrl)
       const dims = await detectImageDimensions(imageArUrl)
@@ -271,6 +276,7 @@ const MemoryArEntryActions = ({
           longitude: lng,
           orientation: dims.orientation,
           aspect: dims.aspect,
+          geoVerified: true,
           ...frameAccentForPin(pin),
         })
       )

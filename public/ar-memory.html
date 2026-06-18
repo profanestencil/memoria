@@ -269,6 +269,7 @@
       const frameColorHex = /^#[0-9a-fA-F]{6}$/.test(frameColorParam) ? frameColorParam : null
       const memoryLat = Number(params.get('lat'))
       const memoryLng = Number(params.get('lng'))
+      const geoVerified = params.get('geoVerified') === '1'
 
       const BOARD_GLB = {
         portrait: '/ar/memory-board-portrait.glb',
@@ -458,16 +459,25 @@
           : null
 
       const requestMotionIfNeeded = async () => {
-        const dm = window.DeviceMotionEvent
         const dor = window.DeviceOrientationEvent
-        const req = dm?.requestPermission || dor?.requestPermission
-        if (!req) return true
-        try {
-          const res = await req.call(dm?.requestPermission ? dm : dor)
-          return res === 'granted'
-        } catch {
-          return false
+        const dm = window.DeviceMotionEvent
+        const prompts = []
+        if (dor?.requestPermission) {
+          prompts.push(() => dor.requestPermission.call(dor))
         }
+        if (dm?.requestPermission) {
+          prompts.push(() => dm.requestPermission.call(dm))
+        }
+        if (!prompts.length) return true
+        for (const prompt of prompts) {
+          try {
+            const res = await prompt()
+            if (res !== 'granted') return false
+          } catch {
+            return false
+          }
+        }
+        return true
       }
 
       const isPermissionError = (e) => {
@@ -507,6 +517,10 @@
 
       const verifyArRange = () =>
         new Promise((resolve) => {
+          if (geoVerified) {
+            resolve(true)
+            return
+          }
           if (!Number.isFinite(memoryLat) || !Number.isFinite(memoryLng)) {
             resolve(true)
             return
@@ -688,14 +702,16 @@
         if (xrRunning) return
         if (!imageUrl) return
 
-        const inRange = await verifyArRange()
-        if (!inRange) return
-
+        // iOS requires motion permission in the same user-gesture turn — before any slow awaits.
         const motionOk = await requestMotionIfNeeded()
         if (!motionOk) {
-          showError('Motion access is needed for world tracking. Enable it in Settings and reload.')
+          setHint('Allow motion access when prompted, then tap to start AR.', true)
+          showTapGate()
           return
         }
+
+        const inRange = await verifyArRange()
+        if (!inRange) return
 
         try {
           const x = window.XR8

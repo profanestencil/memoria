@@ -10,24 +10,33 @@ const isProbablyIos = () => {
 
 const requestMotionPermissionIfNeeded = async (): Promise<RequestResult> => {
   try {
-    const AnyDeviceMotionEvent = DeviceMotionEvent as unknown as {
-      requestPermission?: () => Promise<'granted' | 'denied'>
-    }
-    const AnyDeviceOrientationEvent = DeviceOrientationEvent as unknown as {
-      requestPermission?: () => Promise<'granted' | 'denied'>
+    const orientationReq = (
+      DeviceOrientationEvent as unknown as {
+        requestPermission?: () => Promise<'granted' | 'denied'>
+      }
+    ).requestPermission
+    const motionReq = (
+      DeviceMotionEvent as unknown as {
+        requestPermission?: () => Promise<'granted' | 'denied'>
+      }
+    ).requestPermission
+
+    if (!orientationReq && !motionReq) return { ok: true }
+
+    if (orientationReq) {
+      const result = await orientationReq.call(DeviceOrientationEvent)
+      if (result !== 'granted') {
+        return { ok: false, reason: 'denied', message: 'Motion permission was denied.' }
+      }
     }
 
-    const request =
-      AnyDeviceMotionEvent?.requestPermission ??
-      AnyDeviceOrientationEvent?.requestPermission ??
-      null
-
-    if (!request) return { ok: true }
-
-    const result = await request()
-    if (result !== 'granted') {
-      return { ok: false, reason: 'denied', message: 'Motion permission was denied.' }
+    if (motionReq) {
+      const result = await motionReq.call(DeviceMotionEvent)
+      if (result !== 'granted') {
+        return { ok: false, reason: 'denied', message: 'Motion permission was denied.' }
+      }
     }
+
     return { ok: true }
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Failed to request motion permission.'
