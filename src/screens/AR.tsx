@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { distanceMeters } from '@/lib/geoAr'
+import { checkArViewAllowed } from '@/lib/arGeofence'
 import { ensureXrViewportDom } from '@/lib/ensureXrViewportDom'
 import { loadXrEngine } from '@/lib/loadXrEngine'
 import { resolveMediaPlaybackUrl } from '@/lib/memoryMedia'
@@ -262,11 +263,19 @@ function ArMemoryXR({ state }: { state: LocationState }) {
     setMachine('GEO_ACQUIRING', copyOverlay.gettingLocation)
 
     let acquired = false
-    const beginAr = (distance: number | null) => {
+    const beginAr = async (distance: number | null) => {
       if (acquired) return
+      if (targetLat == null || targetLng == null) return
+
+      const gate = await checkArViewAllowed(targetLat, targetLng)
+      if (!gate.ok) {
+        acquired = true
+        setMachine('OUT_OF_RANGE_BLOCKED', null, gate.message)
+        return
+      }
+
       acquired = true
-      setDistanceM(distance)
-      // Placement is camera-relative; distance is informational only — do not block startup.
+      setDistanceM(gate.distanceM ?? distance)
       setMachine('IN_RANGE_STARTING_AR', copyOverlay.starting)
     }
 
@@ -282,13 +291,13 @@ function ArMemoryXR({ state }: { state: LocationState }) {
         const gate = computeGate(geoRef.current)
         setDistanceM(gate.distanceM)
         if (machineRef.current === 'GEO_ACQUIRING' || machineRef.current === 'OUT_OF_RANGE_BLOCKED') {
-          beginAr(gate.distanceM)
+          void beginAr(gate.distanceM)
         }
       },
       () => {
         if (cancelled) return
-        if (machineRef.current === 'GEO_ACQUIRING' || machineRef.current === 'OUT_OF_RANGE_BLOCKED') {
-          beginAr(null)
+        if (machineRef.current === 'GEO_ACQUIRING') {
+          setMachine('ERROR', null, 'Location is required to view this memory in AR.')
         }
       },
       { enableHighAccuracy: true, maximumAge: 1000, timeout: 15_000 }
@@ -296,7 +305,7 @@ function ArMemoryXR({ state }: { state: LocationState }) {
 
     const fallbackTimer = window.setTimeout(() => {
       if (cancelled || acquired) return
-      beginAr(computeGate(geoRef.current).distanceM)
+      void beginAr(computeGate(geoRef.current).distanceM)
     }, 8_000)
 
     return () => {

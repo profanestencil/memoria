@@ -14,7 +14,7 @@ import {
   prefetchArImage,
 } from '@/lib/arMemoryPageUrl'
 import { checkArViewAllowed } from '@/lib/arGeofence'
-import { frameHueForMemory } from '@/lib/memoryFrameColor'
+import { frameAccentForPin } from '@/lib/memoryFrameColor'
 import { requestArPermissions } from '@/lib/requestArPermissions'
 import { incrementMemoryView } from '@/lib/tipNudge'
 
@@ -271,7 +271,7 @@ const MemoryArEntryActions = ({
           longitude: lng,
           orientation: dims.orientation,
           aspect: dims.aspect,
-          frameHue: frameHueForMemory(pin.memoryId),
+          ...frameAccentForPin(pin),
         })
       )
       return

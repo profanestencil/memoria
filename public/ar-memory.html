@@ -265,6 +265,8 @@
       const imageAspect =
         Number.isFinite(aspectParam) && aspectParam > 0 ? aspectParam : orientation === 'landscape' ? 16 / 9 : 9 / 16
       const frameHue = Number(params.get('frameHue'))
+      const frameColorParam = params.get('frameColor') || ''
+      const frameColorHex = /^#[0-9a-fA-F]{6}$/.test(frameColorParam) ? frameColorParam : null
       const memoryLat = Number(params.get('lat'))
       const memoryLng = Number(params.get('lng'))
 
@@ -372,16 +374,15 @@
         mat.needsUpdate = true
       }
 
-      const applyFrameColor = (root, hue) => {
-        const color = new THREE.Color(`hsl(${hue}, 58%, 44%)`)
+      const applyFrameColor = (root, { hex, hue }) => {
+        const color = hex ? new THREE.Color(hex) : new THREE.Color(`hsl(${hue}, 58%, 44%)`)
         root.traverse((child) => {
           if (!child.isMesh) return
           const mats = Array.isArray(child.material) ? child.material : [child.material]
           mats.forEach((mat) => {
-            if (mat?.name === 'Frame') {
-              mat.color.copy(color)
-              mat.needsUpdate = true
-            }
+            if (mat?.name === 'Photo' || mat?.name === 'Back') return
+            mat.color.copy(color)
+            mat.needsUpdate = true
           })
         })
       }
@@ -639,10 +640,10 @@
               const [tex, gltf] = await assetsPromise
               fitBoardToAspect(gltf.scene, orientation, imageAspect)
               applyPhotoTexture(gltf.scene, tex)
-              applyFrameColor(
-                gltf.scene,
-                Number.isFinite(frameHue) ? frameHue : 220
-              )
+              applyFrameColor(gltf.scene, {
+                hex: frameColorHex,
+                hue: Number.isFinite(frameHue) ? frameHue : 220,
+              })
               tiltGroup.add(gltf.scene)
               const { camera } = window.XR8.Threejs.xrScene()
               placeAtOrigin(camera)

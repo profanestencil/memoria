@@ -11,6 +11,7 @@ export type ArMemoryPageParams = {
   orientation?: ArMemoryOrientation
   aspect?: number
   frameHue?: number
+  frameColor?: string
 }
 
 /** Standalone Three.js AR page — avoids React/WebGL stacking issues. */
@@ -23,6 +24,7 @@ export const buildArMemoryPageUrl = ({
   orientation,
   aspect,
   frameHue,
+  frameColor,
 }: ArMemoryPageParams): string => {
   const u = new URL('/ar-memory.html', window.location.origin)
   u.searchParams.set('imageUrl', resolveMediaPlaybackUrl(imageUrl.trim()))
@@ -38,7 +40,10 @@ export const buildArMemoryPageUrl = ({
   if (aspect != null && Number.isFinite(aspect) && aspect > 0) {
     u.searchParams.set('aspect', String(Math.min(3, Math.max(0.25, aspect))))
   }
-  if (frameHue != null && Number.isFinite(frameHue)) {
+  const hex = frameColor?.trim()
+  if (hex && /^#[0-9a-fA-F]{6}$/.test(hex)) {
+    u.searchParams.set('frameColor', hex)
+  } else if (frameHue != null && Number.isFinite(frameHue)) {
     u.searchParams.set('frameHue', String(Math.floor(frameHue) % 360))
   }
   return u.pathname + u.search
