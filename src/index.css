@@ -1246,6 +1246,28 @@ textarea:focus-visible {
   color: rgba(255, 210, 210, 0.92);
 }
 
+.mem-ar-prepare {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.mem-ar-prepare__spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.22);
+  border-top-color: var(--mem-brass, #e8c547);
+  border-radius: 50%;
+  animation: mem-ar-spin 0.65s linear infinite;
+}
+
+@keyframes mem-ar-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .mem-memory-full-backdrop {
   position: fixed;
   inset: 0;

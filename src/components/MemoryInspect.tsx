@@ -211,6 +211,14 @@ const MemoryArEntryActions = ({
   const imageArUrl = pinImageArUrl(pin)
   const canViewInAr = Boolean(imageArUrl) || Boolean(playbackUrl)
 
+  useEffect(() => {
+    if (!imageArUrl) return
+    prefetchArImage(imageArUrl)
+    void detectImageDimensions(imageArUrl)
+    prefetchArBoardGlb('portrait')
+    prefetchArBoardGlb('landscape')
+  }, [imageArUrl])
+
   const creatorLabel =
     myAddress && pin.creator.toLowerCase() === myAddress.toLowerCase()
       ? 'You'
@@ -257,10 +265,11 @@ const MemoryArEntryActions = ({
     }
 
     if (imageArUrl) {
-      onBeforeArNavigate?.()
       prefetchArImage(imageArUrl)
+      prefetchArBoardGlb('portrait')
+      prefetchArBoardGlb('landscape')
       const dims = await detectImageDimensions(imageArUrl)
-      prefetchArBoardGlb(dims.orientation)
+      onBeforeArNavigate?.()
       window.location.assign(
         buildArMemoryPageUrl({
           imageUrl: imageArUrl,
@@ -322,7 +331,14 @@ const MemoryArEntryActions = ({
         disabled={!canViewInAr || arUi.busy}
         aria-label={canViewInAr ? 'View this memory in AR' : missingLabel}
       >
-        {arUi.busy ? 'Preparing AR…' : 'View in AR'}
+        {arUi.busy ? (
+          <span className="mem-ar-prepare">
+            <span className="mem-ar-prepare__spinner" aria-hidden="true" />
+            Preparing AR…
+          </span>
+        ) : (
+          'View in AR'
+        )}
       </button>
       {arUi.error ? (
         <p className={errClass} role="status" aria-live="polite">

@@ -63,19 +63,9 @@ const buildBoardScene = (w, h, depth) => {
   )
   board.name = 'MemoryBoard'
 
-  const framePad = 0.018
-  const frameDepth = 0.012
-  const frameBorder = new THREE.Mesh(
-    new THREE.BoxGeometry(w + framePad * 2, h + framePad * 2, frameDepth),
-    frameMat.clone()
-  )
-  frameBorder.name = 'FrameBorder'
-  frameBorder.position.z = depth / 2 + frameDepth / 2 + 0.001
-
   const root = new THREE.Group()
   root.name = 'MemoryCard'
   root.add(board)
-  root.add(frameBorder)
 
   const scene = new THREE.Scene()
   scene.add(root)

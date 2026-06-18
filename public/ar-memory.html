@@ -99,6 +99,19 @@
         letter-spacing: 0.04em;
         color: rgba(255, 255, 255, 0.42);
       }
+      .mem-ar-splash__spinner {
+        width: 28px;
+        height: 28px;
+        border: 2px solid rgba(255, 255, 255, 0.16);
+        border-top-color: rgba(232, 197, 71, 0.92);
+        border-radius: 50%;
+        animation: mem-ar-splash-spin 0.7s linear infinite;
+      }
+      @keyframes mem-ar-splash-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
       .mem-ar-chrome {
         position: fixed;
         z-index: 20;
@@ -222,7 +235,8 @@
   <body>
     <div id="splash" class="mem-ar-splash" aria-hidden="false">
       <img src="/illust-logo-white.png" alt="illust." width="148" height="40" decoding="async" />
-      <p class="mem-ar-splash__sub">Loading memory…</p>
+      <div class="mem-ar-splash__spinner" aria-hidden="true"></div>
+      <p id="splash-sub" class="mem-ar-splash__sub">Loading memory…</p>
     </div>
 
     <canvas id="camerafeed"></canvas>
@@ -283,7 +297,7 @@
       }
 
       /** World origin anchor — board stands on floor (Y=0) facing the viewer. */
-      const PLACEMENT_DISTANCE = 1.88
+      const PLACEMENT_DISTANCE = 2.45
       const MAX_BOARD_EDGE_M = 1.48
       const DEPTH_SCALE = 2.35
       const BOB_AMPLITUDE = 0.068
@@ -294,6 +308,7 @@
       const backBtn = document.getElementById('back-btn')
       const tapGate = document.getElementById('tap-gate')
       const splash = document.getElementById('splash')
+      const splashSub = document.getElementById('splash-sub')
       const metaTitle = document.getElementById('meta-title')
       const metaCreator = document.getElementById('meta-creator')
 
@@ -364,14 +379,19 @@
 
       const canvasNormal = createCanvasNormalMap()
 
+      const setSplashStatus = (msg) => {
+        if (splashSub) splashSub.textContent = msg
+      }
+
       const dressPhotoMaterial = (mat, tex) => {
+        mat.color.setRGB(1, 1, 1)
         mat.map = tex
         mat.emissiveMap = tex
         mat.emissive = new THREE.Color(0xffffff)
-        mat.emissiveIntensity = 0.48
+        mat.emissiveIntensity = 0.42
         mat.normalMap = canvasNormal
         mat.normalScale = new THREE.Vector2(0.14, 0.14)
-        mat.roughness = 0.68
+        mat.roughness = 0.62
         mat.metalness = 0
         mat.needsUpdate = true
       }
@@ -382,7 +402,7 @@
           if (!child.isMesh) return
           const mats = Array.isArray(child.material) ? child.material : [child.material]
           mats.forEach((mat) => {
-            if (mat?.name === 'Photo' || mat?.name === 'Back') return
+            if (mat?.name !== 'Frame') return
             mat.color.copy(color)
             mat.needsUpdate = true
           })
@@ -393,14 +413,17 @@
         root.traverse((child) => {
           if (!child.isMesh) return
           const mats = Array.isArray(child.material) ? child.material : [child.material]
-          const named = mats.find((mat) => mat?.name === 'Photo')
-          if (named) {
-            dressPhotoMaterial(named, tex)
-            return
-          }
-          if (child.name === 'MemoryBoard' && mats.length >= 6) {
-            dressPhotoMaterial(mats[4], tex)
-          }
+          mats.forEach((mat) => {
+            if (mat?.name === 'Photo') dressPhotoMaterial(mat, tex)
+          })
+        })
+      }
+
+      const enableBoardShadows = (root) => {
+        root.traverse((child) => {
+          if (!child.isMesh) return
+          child.castShadow = true
+          child.receiveShadow = true
         })
       }
 
@@ -425,24 +448,39 @@
         boardMetrics = { width: targetW, height: targetH }
       }
 
-      const texturePromise = imageUrl
-        ? new Promise((resolve, reject) => {
+      const loadMemoryTexture = (url) =>
+        new Promise((resolve, reject) => {
+          const tryLoad = (src, isRetry) => {
             const loader = new THREE.TextureLoader()
-            if (!imageUrl.startsWith('blob:') && !imageUrl.startsWith('data:')) {
+            if (!src.startsWith('blob:') && !src.startsWith('data:')) {
               loader.setCrossOrigin('anonymous')
             }
             loader.load(
-              imageUrl,
+              src,
               (tex) => {
                 tex.colorSpace = THREE.SRGBColorSpace
                 tex.anisotropy = 8
                 resolve(tex)
               },
               undefined,
-              () => reject(new Error('Could not load the memory image.'))
+              () => {
+                if (!isRetry && !src.includes('/api/media/proxy')) {
+                  try {
+                    const proxied = `/api/media/proxy?target=${encodeURIComponent(src)}`
+                    tryLoad(proxied, true)
+                    return
+                  } catch {
+                    /* fall through */
+                  }
+                }
+                reject(new Error('Could not load the memory image.'))
+              }
             )
-          })
-        : null
+          }
+          tryLoad(url, false)
+        })
+
+      const texturePromise = imageUrl ? loadMemoryTexture(imageUrl) : null
 
       const boardPromise = new Promise((resolve, reject) => {
         const loader = new GLTFLoader()
@@ -610,8 +648,6 @@
       const memorySceneModule = () => ({
         name: 'memoria-world-memory',
         onStart: () => {
-          hideSplash()
-
           const xrScene = window.XR8.Threejs.xrScene()
           const { scene, renderer } = xrScene
 
@@ -621,26 +657,42 @@
           renderer.autoClear = false
           renderer.setClearColor(0x000000, 0)
 
-          const ambient = new THREE.AmbientLight(0xffffff, 0.72)
+          const ambient = new THREE.AmbientLight(0xffffff, 0.55)
           scene.add(ambient)
 
-          const hemi = new THREE.HemisphereLight(0xfff8ee, 0x3a3530, 1.05)
+          const hemi = new THREE.HemisphereLight(0xfff8ee, 0x3a3530, 0.85)
           scene.add(hemi)
 
-          const sun = new THREE.DirectionalLight(0xffffff, 1.35)
-          sun.position.set(2, 5, 1.5)
+          const sun = new THREE.DirectionalLight(0xffffff, 1.45)
+          sun.position.set(1.2, 4.5, 2.2)
           sun.castShadow = true
-          sun.shadow.mapSize.set(512, 512)
-          sun.shadow.bias = -0.0004
+          sun.shadow.mapSize.set(1024, 1024)
+          sun.shadow.bias = -0.00035
+          sun.shadow.normalBias = 0.02
+          sun.shadow.camera.near = 0.2
+          sun.shadow.camera.far = 14
+          sun.shadow.camera.left = -3.5
+          sun.shadow.camera.right = 3.5
+          sun.shadow.camera.top = 3.5
+          sun.shadow.camera.bottom = -3.5
           scene.add(sun)
 
-          const fill = new THREE.DirectionalLight(0xfff4e8, 0.62)
+          const fill = new THREE.DirectionalLight(0xfff4e8, 0.48)
           fill.position.set(-2.5, 2, 2.5)
           scene.add(fill)
 
-          const rim = new THREE.DirectionalLight(0xdde8ff, 0.35)
+          const rim = new THREE.DirectionalLight(0xdde8ff, 0.28)
           rim.position.set(0, 1.5, -3)
           scene.add(rim)
+
+          const ground = new THREE.Mesh(
+            new THREE.PlaneGeometry(12, 12),
+            new THREE.ShadowMaterial({ opacity: 0.38, color: 0x000000 })
+          )
+          ground.rotation.x = -Math.PI / 2
+          ground.position.y = 0
+          ground.receiveShadow = true
+          scene.add(ground)
 
           memoryAnchor = new THREE.Group()
           memoryAnchor.visible = false
@@ -652,16 +704,19 @@
 
           void (async () => {
             try {
+              setHint('Loading memory…', true)
               const [tex, gltf] = await assetsPromise
               fitBoardToAspect(gltf.scene, orientation, imageAspect)
-              applyPhotoTexture(gltf.scene, tex)
               applyFrameColor(gltf.scene, {
                 hex: frameColorHex,
                 hue: Number.isFinite(frameHue) ? frameHue : 220,
               })
+              applyPhotoTexture(gltf.scene, tex)
+              enableBoardShadows(gltf.scene)
               tiltGroup.add(gltf.scene)
               const { camera } = window.XR8.Threejs.xrScene()
               placeAtOrigin(camera)
+              setHint('', false)
             } catch (e) {
               showError(e instanceof Error ? e.message : 'Could not load the memory.')
             }

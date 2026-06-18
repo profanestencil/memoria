@@ -64,25 +64,41 @@ export type ImageDimensions = {
   height: number
 }
 
-export const detectImageDimensions = (imageUrl: string): Promise<ImageDimensions> =>
-  new Promise((resolve) => {
+const dimensionCache = new Map<string, ImageDimensions>()
+
+export const detectImageDimensions = (imageUrl: string): Promise<ImageDimensions> => {
+  const cached = dimensionCache.get(imageUrl)
+  if (cached) return Promise.resolve(cached)
+
+  return new Promise((resolve) => {
     const img = new Image()
     img.crossOrigin = 'anonymous'
+    img.decoding = 'async'
     img.onload = () => {
       const width = img.naturalWidth || 1
       const height = img.naturalHeight || 1
       const aspect = width / height
-      resolve({
+      const dims: ImageDimensions = {
         orientation: height > width ? 'portrait' : 'landscape',
         aspect,
         width,
         height,
-      })
+      }
+      dimensionCache.set(imageUrl, dims)
+      resolve(dims)
     }
-    img.onerror = () =>
-      resolve({ orientation: 'portrait', aspect: 9 / 16, width: 9, height: 16 })
+    img.onerror = () => {
+      const fallback: ImageDimensions = {
+        orientation: 'portrait',
+        aspect: 9 / 16,
+        width: 9,
+        height: 16,
+      }
+      resolve(fallback)
+    }
     img.src = imageUrl
   })
+}
 
 /** @deprecated use detectImageDimensions */
 export const detectImageOrientation = async (imageUrl: string): Promise<ArMemoryOrientation> => {

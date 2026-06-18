@@ -53,8 +53,8 @@ const requestLocationPermission = async (): Promise<RequestResult> => {
     const position = await new Promise<GeolocationPosition>((resolve, reject) => {
       navigator.geolocation.getCurrentPosition(resolve, reject, {
         enableHighAccuracy: true,
-        timeout: 12_000,
-        maximumAge: 0,
+        timeout: 8_000,
+        maximumAge: 30_000,
       })
     })
     return {
