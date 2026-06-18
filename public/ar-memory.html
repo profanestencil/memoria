@@ -270,6 +270,7 @@
       const memoryLat = Number(params.get('lat'))
       const memoryLng = Number(params.get('lng'))
       const geoVerified = params.get('geoVerified') === '1'
+      const sensorsReady = params.get('sensorsReady') === '1'
 
       const BOARD_GLB = {
         portrait: '/ar/memory-board-portrait.glb',
@@ -702,12 +703,13 @@
         if (xrRunning) return
         if (!imageUrl) return
 
-        // iOS requires motion permission in the same user-gesture turn — before any slow awaits.
-        const motionOk = await requestMotionIfNeeded()
-        if (!motionOk) {
-          setHint('Allow motion access when prompted, then tap to start AR.', true)
-          showTapGate()
-          return
+        if (!sensorsReady) {
+          const motionOk = await requestMotionIfNeeded()
+          if (!motionOk) {
+            setHint('Allow motion access when prompted, then tap to start AR.', true)
+            showTapGate()
+            return
+          }
         }
 
         const inRange = await verifyArRange()
@@ -770,6 +772,10 @@
 
       const onEngineReady = () => {
         if (!imageUrl) return
+        if (sensorsReady && !needsTapToStart()) {
+          void startXr()
+          return
+        }
         if (needsTapToStart()) {
           showTapGate()
           return

@@ -14,6 +14,8 @@ export type ArMemoryPageParams = {
   frameColor?: string
   /** Skip redundant geofence round-trip on the AR page when already verified in-app. */
   geoVerified?: boolean
+  /** Motion + camera already granted on View in AR tap in the app shell. */
+  sensorsReady?: boolean
 }
 
 /** Standalone Three.js AR page — avoids React/WebGL stacking issues. */
@@ -28,6 +30,7 @@ export const buildArMemoryPageUrl = ({
   frameHue,
   frameColor,
   geoVerified,
+  sensorsReady,
 }: ArMemoryPageParams): string => {
   const u = new URL('/ar-memory.html', window.location.origin)
   u.searchParams.set('imageUrl', resolveMediaPlaybackUrl(imageUrl.trim()))
@@ -50,6 +53,7 @@ export const buildArMemoryPageUrl = ({
     u.searchParams.set('frameHue', String(Math.floor(frameHue) % 360))
   }
   if (geoVerified) u.searchParams.set('geoVerified', '1')
+  if (sensorsReady) u.searchParams.set('sensorsReady', '1')
   return u.pathname + u.search
 }
 

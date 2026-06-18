@@ -219,7 +219,6 @@ const MemoryArEntryActions = ({
   const handleViewInAr = useCallback(async () => {
     if (arUi.busy) return
     if (!canViewInAr) return
-    setArUi({ busy: true, error: null })
 
     const lat = Number(pin.latitude)
     const lng = Number(pin.longitude)
@@ -228,17 +227,22 @@ const MemoryArEntryActions = ({
       return
     }
 
+    setArUi({ busy: true, error: null })
+
+    // iOS: motion/orientation must be the first await after the tap (before geofence/network).
+    const perm = await requestArPermissions()
+    if (!perm.ok) {
+      setArUi({ busy: false, error: perm.message })
+      return
+    }
+
+    const gate = await checkArViewAllowed(lat, lng, perm.userGeo)
+    if (!gate.ok) {
+      setArUi({ busy: false, error: gate.message })
+      return
+    }
+
     if (pinIsAudioMemory(pin) && playbackUrl) {
-      const gate = await checkArViewAllowed(lat, lng)
-      if (!gate.ok) {
-        setArUi({ busy: false, error: gate.message })
-        return
-      }
-      const perm = await requestArPermissions()
-      if (!perm.ok) {
-        setArUi({ busy: false, error: perm.message })
-        return
-      }
       onBeforeArNavigate?.()
       navigate('/ar', {
         state: {
@@ -253,16 +257,6 @@ const MemoryArEntryActions = ({
     }
 
     if (imageArUrl) {
-      const gate = await checkArViewAllowed(lat, lng)
-      if (!gate.ok) {
-        setArUi({ busy: false, error: gate.message })
-        return
-      }
-      const perm = await requestArPermissions()
-      if (!perm.ok) {
-        setArUi({ busy: false, error: perm.message })
-        return
-      }
       onBeforeArNavigate?.()
       prefetchArImage(imageArUrl)
       const dims = await detectImageDimensions(imageArUrl)
@@ -277,6 +271,7 @@ const MemoryArEntryActions = ({
           orientation: dims.orientation,
           aspect: dims.aspect,
           geoVerified: true,
+          sensorsReady: true,
           ...frameAccentForPin(pin),
         })
       )
@@ -327,7 +322,7 @@ const MemoryArEntryActions = ({
         disabled={!canViewInAr || arUi.busy}
         aria-label={canViewInAr ? 'View this memory in AR' : missingLabel}
       >
-        {arUi.busy ? 'Requesting…' : 'View in AR'}
+        {arUi.busy ? 'Preparing AR…' : 'View in AR'}
       </button>
       {arUi.error ? (
         <p className={errClass} role="status" aria-live="polite">

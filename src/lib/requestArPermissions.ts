@@ -1,5 +1,5 @@
 type RequestResult =
-  | { ok: true }
+  | { ok: true; userGeo?: import('@/lib/arGeofence').UserGeo }
   | { ok: false; reason: 'unsupported' | 'denied' | 'unknown'; message: string }
 
 const isProbablyIos = () => {
@@ -50,14 +50,20 @@ const requestLocationPermission = async (): Promise<RequestResult> => {
   }
 
   try {
-    await new Promise<GeolocationPosition>((resolve, reject) => {
+    const position = await new Promise<GeolocationPosition>((resolve, reject) => {
       navigator.geolocation.getCurrentPosition(resolve, reject, {
         enableHighAccuracy: true,
         timeout: 12_000,
         maximumAge: 0,
       })
     })
-    return { ok: true }
+    return {
+      ok: true,
+      userGeo: {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+      },
+    }
   } catch (e) {
     const geoErr = e as GeolocationPositionError
     if (geoErr?.code === geoErr.PERMISSION_DENIED) {
@@ -91,27 +97,21 @@ const requestCameraPermission = async (): Promise<RequestResult> => {
 }
 
 /**
- * Ask for permissions up-front (from a user gesture) to improve AR startup reliability.
- * - Camera: via getUserMedia preflight
- * - Motion/orientation: iOS prompt if required
+ * Ask for permissions from the View in AR tap — motion must be first await (iOS gesture).
+ * Order: motion/orientation → camera → location (feeds geofence).
  */
 export const requestArPermissions = async (): Promise<RequestResult> => {
-  // iOS is the platform most likely to require explicit motion prompts.
-  if (isProbablyIos()) {
-    const motion = await requestMotionPermissionIfNeeded()
-    if (!motion.ok) return motion
-  } else {
-    // Non-iOS can still have motion prompts in embedded browsers, but most do not.
-    const motion = await requestMotionPermissionIfNeeded()
-    if (!motion.ok && motion.reason === 'denied') return motion
+  const motion = await requestMotionPermissionIfNeeded()
+  if (!motion.ok) {
+    if (isProbablyIos() || motion.reason === 'denied') return motion
   }
 
   const camera = await requestCameraPermission()
   if (!camera.ok) return camera
 
-  // Best-effort: warms location permission before /ar (distance badge only).
-  await requestLocationPermission()
+  const location = await requestLocationPermission()
+  if (!location.ok) return location
 
-  return { ok: true }
+  return { ok: true, userGeo: location.userGeo }
 }
 

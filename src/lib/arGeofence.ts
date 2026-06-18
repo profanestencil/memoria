@@ -22,9 +22,10 @@ export type ArViewGateResult =
 
 export const checkArViewAllowed = async (
   memoryLat: number,
-  memoryLng: number
+  memoryLng: number,
+  userGeo?: UserGeo | null
 ): Promise<ArViewGateResult> => {
-  const user = await getUserGeoOnce()
+  const user = userGeo ?? (await getUserGeoOnce())
   if (!user) {
     return {
       ok: false,
